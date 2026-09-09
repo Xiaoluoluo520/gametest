@@ -1,0 +1,26 @@
+{
+  "name": "疯狂料理屋",
+  "short_name": "疯狂料理屋",
+  "description": "类《胡闹厨房》单人料理游戏（像素风）",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#140e08",
+  "theme_color": "#140e08",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='512' height='512' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%23140e08'/%3E%3Crect x='32' y='32' width='448' height='448' fill='%232a1a12' stroke='%237a4a1e' stroke-width='20'/%3E%3Cellipse cx='256' cy='186' rx='150' ry='64' fill='%23ffe08a' stroke='%2317121c' stroke-width='16'/%3E%3Crect x='106' y='244' width='300' height='42' fill='%238fd14f' stroke='%2317121c' stroke-width='12'/%3E%3Crect x='106' y='286' width='300' height='58' fill='%23c97a3e' stroke='%2317121c' stroke-width='12'/%3E%3Crect x='106' y='344' width='300' height='58' fill='%23f5c542' stroke='%2317121c' stroke-width='12'/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='512' height='512' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%23140e08'/%3E%3Crect x='32' y='32' width='448' height='448' fill='%232a1a12' stroke='%237a4a1e' stroke-width='20'/%3E%3Cellipse cx='256' cy='186' rx='150' ry='64' fill='%23ffe08a' stroke='%2317121c' stroke-width='16'/%3E%3Crect x='106' y='244' width='300' height='42' fill='%238fd14f' stroke='%2317121c' stroke-width='12'/%3E%3Crect x='106' y='286' width='300' height='58' fill='%23c97a3e' stroke='%2317121c' stroke-width='12'/%3E%3Crect x='106' y='344' width='300' height='58' fill='%23f5c542' stroke='%2317121c' stroke-width='12'/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,0 +1,1450 @@
+<!DOCTYPE html>
+<!--
+  ============================================================
+  疯狂料理屋 (Cooking Frenzy) v2.9.0  —  2026-09-08
+  ------------------------------------------------------------
+  类型    : 类《胡闹厨房》单人料理游戏（限时赛 + 无尽模式 + 教程）
+  技术    : 原生 JavaScript + Canvas 2D，低分辨率像素渲染（640×360）
+  画风    : 泰拉瑞亚式像素风；16×16 瓷砖；24×24 统一 SPRITES 像素矩阵
+  素材    : 代码像素矩阵 + 32 色调色板（首选，离线可玩）；字体 Press Start 2P
+  许可证  : 代码 MIT；字体 SIL OFL 1.1；全部素材可免费商用
+  ------------------------------------------------------------
+  v2.2 新增：640×360 分辨率与缩放修复 / 难度平衡(热身期+参数) /
+              24×24 食物材质 / 布局重排 / 教程模式 / 配料表图鉴
+  v2.3 新增：移速参数化+缓冲 / 饮料机通用逻辑重构 / ESC 暂停菜单 /
+              历史最高分记录(6组)与清除入口
+  v2.4 修复：饮料机灌装距离判定(根因:以左上角为基准导致误取消) /
+              版本可视化 + 交互链路调试日志(?debug=1)
+  v2.6 重构：删除盘子机制 / 组合系统重写(单id+计数,合并合法子集判定) /
+              成品图标切换修复 / 新增面包胚食材(汉堡=胚+肉饼+生菜)
+  v2.7 修复：组合判定根因(parts元素格式不一致) / PWA(manifest+SW) /
+              触屏操控(摇杆+交互+菜单) / 竖屏提示
+  v2.8 修复：成品转化判定统一化 checkAndTransform（锅产出即时成品化）
+  v2.9 修复：套餐交付改为无序需求集合（先交饮料不再判错）+ 最近顾客分配
+              手机 App 版完善（触屏命中区/禁长按菜单/内联 manifest）
+  ============================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#140e08">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="疯狂料理屋">
+<meta name="format-detection" content="telephone=no">
+<title>疯狂料理屋 v2.9</title>
+<link rel="manifest" id="manifestLink" href="manifest.json">
+<link rel="apple-touch-icon" id="appleIcon">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; height:100%; overflow:hidden; background:#140e08; color:#fff;
+    font-family:'Press Start 2P','PingFang SC','Microsoft YaHei',monospace;
+    user-select:none; -webkit-user-select:none; display:flex; align-items:center; justify-content:center;
+    overscroll-behavior:none; touch-action:none; -webkit-overflow-scrolling:none; -webkit-touch-callout:none; }
+  /* 深色像素纹理信封边（非纯黑） */
+  body { background-color:#140e08;
+    background-image:linear-gradient(45deg,#1c1410 25%,transparent 25%,transparent 75%,#1c1410 75%),
+                     linear-gradient(45deg,#1c1410 25%,transparent 25%,transparent 75%,#1c1410 75%);
+    background-size:16px 16px; background-position:0 0,8px 8px; }
+  #game { image-rendering:pixelated; image-rendering:crisp-edges; display:block; box-shadow:0 0 0 2px #000; }
+  .ui-text { font-family:'PingFang SC','Microsoft YaHei',system-ui,sans-serif; } /* 长文本用可读字体 */
+
+  /* ---------- 触屏（半透明不挡视野，多点触控） ---------- */
+  #touch { position:fixed; inset:0; pointer-events:none; z-index:50; display:none; }
+  #joy { position:fixed; left:18px; bottom:18px; width:120px; height:120px; border-radius:50%;
+    background:rgba(255,255,255,.12); border:3px solid rgba(255,255,255,.3); pointer-events:auto; }
+  #joyKnob { position:absolute; left:50%; top:50%; width:52px; height:52px; margin:-26px; border-radius:50%;
+    background:rgba(255,255,255,.7); box-shadow:0 2px 6px rgba(0,0,0,.4); }
+  #btnE, #btnMenu { position:fixed; right:20px; border-radius:14px; border:3px solid rgba(255,255,255,.75);
+    font-family:inherit; pointer-events:auto; opacity:.82; box-shadow:0 3px 0 rgba(0,0,0,.35); }
+  #btnE { bottom:24px; width:84px; height:84px; font-size:14px; background:rgba(245,197,66,.85); color:#2a1a12; }
+  #btnMenu { bottom:120px; width:68px; height:68px; font-size:12px; background:rgba(90,58,32,.8); color:#fff; }
+
+  /* ---------- 启动画面 / 竖屏提示 ---------- */
+  #splash { position:fixed; inset:0; z-index:90; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:18px; background:#140e08; transition:opacity .4s; }
+  #splash.hide { opacity:0; pointer-events:none; }
+  #splash img { image-rendering:pixelated; width:96px; height:96px; }
+  #splash .st { color:#f5c542; font-size:16px; }
+  #scrRotate { z-index:95; }
+
+  /* ---------- 通用界面 ---------- */
+  .screen { position:fixed; inset:0; z-index:60; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:14px; background:rgba(20,14,8,.94); padding:20px; overflow:auto; }
+  .screen.hidden { display:none; }
+  h1.title { font-size:clamp(16px,3vw,26px); margin:0; color:#f5c542; text-shadow:3px 3px 0 #7a4a1e; text-align:center; }
+  .subtitle { color:#c9b79a; font-size:11px; line-height:1.8; text-align:center; }
+  .cards { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
+  .card { width:240px; background:#2a1a12; color:#f7f0dc; border:4px solid #7a4a1e; padding:14px;
+    box-shadow:4px 4px 0 #000; cursor:pointer; text-align:center; }
+  .card:hover, .card:active { background:#3a2a1a; transform:translateY(-2px); }
+  .card h3 { margin:0 0 8px; font-size:13px; color:#f5c542; }
+  .card .ic { font-size:30px; display:block; margin-bottom:6px; }
+  .card p { margin:4px 0; font-size:9px; line-height:1.9; color:#c9b79a; }
+  .card .stamp { display:inline-block; margin-top:8px; font-size:9px; color:#fff; background:var(--c); padding:4px 10px; border:2px solid #000; }
+  .btn { cursor:pointer; background:#f5c542; color:#2a1a12; font-family:inherit; font-size:12px;
+    padding:12px 20px; border:4px solid #fff; box-shadow:4px 4px 0 #7a4a1e; }
+  .btn:active { transform:translateY(2px); box-shadow:2px 2px 0 #7a4a1e; }
+  .btn.ghost { background:#3a2a1a; color:#fff; border-color:#7a4a1e; }
+  .btn.small { font-size:10px; padding:8px 12px; }
+  .btnrow { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
+
+  /* ---------- HUD DOM：配料表按钮 ---------- */
+  #btnBook { position:fixed; top:8px; right:8px; z-index:40; font-size:10px; padding:8px 12px; min-height:48px; }
+  #btnTutorialSkip { position:fixed; top:8px; right:8px; z-index:41; font-size:9px; padding:7px 10px; display:none; }
+
+  /* ---------- 教程气泡 ---------- */
+  #tutorialBubble { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); z-index:42;
+    background:rgba(26,18,32,.95); border:3px solid #f5c542; box-shadow:4px 4px 0 #000;
+    padding:12px 18px; max-width:92vw; text-align:center; display:none; }
+  #tutorialBubble .step { color:#f5c542; font-size:10px; }
+  #tutorialBubble .hint { color:#f7f0dc; font-size:12px; margin-top:6px; line-height:1.6; }
+  #tutorialBubble .hint .k { background:#f5c542; color:#2a1a12; padding:1px 5px; border-radius:2px; font-size:11px; }
+
+  /* ---------- 配料表 ---------- */
+  #scrGlossary { z-index:70; justify-content:flex-start; }
+  #glossaryPanel { background:#2a1a12; border:5px solid #7a4a1e; box-shadow:6px 6px 0 #000; padding:16px 20px;
+    max-width:640px; width:92vw; max-height:82vh; overflow-y:auto; }
+  #glossaryPanel h2 { color:#f5c542; font-size:15px; margin:14px 0 8px; text-align:center; }
+  .g-section { color:#8fd14f; font-size:12px; margin:14px 0 6px; border-bottom:2px solid #7a4a1e; padding-bottom:4px; }
+  .g-recipe { display:flex; align-items:center; gap:12px; background:#3a2a1a; border:3px solid #7a4a1e;
+    padding:10px; margin:8px 0; }
+  .g-recipe img { image-rendering:pixelated; width:48px; height:48px; }
+  .g-recipe .g-body { flex:1; }
+  .g-recipe .g-name { color:#f5c542; font-size:11px; }
+  .g-recipe .g-info { color:#c9b79a; font-size:10px; margin-top:4px; line-height:1.7; }
+  .g-recipe .g-parts { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+  .g-part { display:flex; align-items:center; gap:3px; font-size:9px; color:#f7f0dc; background:#2a1a12; padding:2px 5px; border:1px solid #7a4a1e; }
+  .g-part img { width:22px; height:22px; }
+  .g-rule { font-size:11px; color:#c9b79a; line-height:1.9; margin:4px 0; }
+
+  /* ---------- 结算 / 设置 / 首次提示 ---------- */
+  #resultBox { background:#2a1a12; border:5px solid #7a4a1e; padding:22px 30px; text-align:center; box-shadow:6px 6px 0 #000; max-width:94vw; }
+  #resultBox h2 { margin:0 0 10px; font-size:18px; color:#f5c542; }
+  .rank { font-size:52px; color:#f5c542; text-shadow:4px 4px 0 #7a4a1e; margin:6px 0; }
+  .stats { display:grid; grid-template-columns:auto auto; gap:6px 18px; justify-content:center; margin:12px 0; font-size:11px; text-align:left; }
+  .stats .sv { text-align:right; color:#f5c542; }
+  .newbest { color:#f58a1f; font-size:10px; margin-bottom:8px; animation:newbestPulse .6s infinite alternate; }
+  @keyframes newbestPulse { from { transform:scale(1); opacity:1; } to { transform:scale(1.18); opacity:.6; } }
+  .rec { font-size:9px; color:#8fd14f; margin-top:8px; line-height:1.7; }
+  #scrPause { z-index:75; background:rgba(0,0,0,.6); }
+  #scrPause .btn.selected { outline:3px solid #f5c542; background:#ffe08a; color:#2a1a12; }
+  .toggle { cursor:pointer; display:flex; align-items:center; gap:10px; background:#3a2a1a; border:3px solid #7a4a1e; padding:10px 16px; }
+  .toggle .box { width:18px; height:18px; border:3px solid #fff; background:#000; position:relative; }
+  .toggle.on .box::after { content:''; position:absolute; left:3px; top:3px; width:8px; height:8px; background:#4caf50; }
+</style>
+</head>
+<body>
+<canvas id="game" width="640" height="360"></canvas>
+
+<div id="touch"><div id="joy"><div id="joyKnob"></div></div><button id="btnE">交互</button><button id="btnMenu">菜单</button></div>
+<div id="splash"><img id="splashLogo" alt="logo"><div class="st">疯狂料理屋</div></div>
+
+<button id="btnBook" class="btn small">配料表 (B)</button>
+<button id="btnTutorialSkip" class="btn small ghost">跳过教程</button>
+
+<div id="tutorialBubble">
+  <div class="step" id="tbStep"></div>
+  <div class="hint" id="tbHint"></div>
+</div>
+
+<!-- 首次进入提示 -->
+<div class="screen" id="scrPrompt">
+  <h1 class="title">欢迎！</h1>
+  <div class="subtitle ui-text" style="font-size:14px;">首次游玩，是否进入教程模式快速上手？</div>
+  <div class="btnrow">
+    <button class="btn" id="btnTutYes">进入教程</button>
+    <button class="btn ghost" id="btnTutNo">跳过</button>
+  </div>
+</div>
+
+<!-- 难度选择 -->
+<div class="screen hidden" id="scrDiff">
+  <h1 class="title">疯狂料理屋</h1>
+  <div class="subtitle">单人料理 · 限时赛 / 无尽模式 <span id="versionLabel" style="color:#8fd14f;"></span></div>
+  <div class="cards" id="diffCards"></div>
+  <div class="btnrow">
+    <button class="btn ghost" id="btnTutorial">? 教程模式</button>
+    <button class="btn ghost" id="btnSettings">⚙ 设置</button>
+  </div>
+  <div class="subtitle ui-text" style="font-size:12px;">WASD/方向键移动 · E/空格交互 · B 配料表</div>
+</div>
+
+<!-- 模式选择 -->
+<div class="screen hidden" id="scrMode">
+  <h1 class="title">选择模式</h1>
+  <div class="subtitle" id="modeSub"></div>
+  <div class="cards">
+    <div class="card" data-mode="time"><span class="ic">⏱</span><h3>限时赛</h3><p>120 秒内服务更多客人，按得分评定 S/A/B/C 评级。</p><span class="stamp" style="--c:#3a7bd5">120 秒</span></div>
+    <div class="card" data-mode="endless"><span class="ic">♾</span><h3>无尽模式</h3><p>无时限存活，超时/错交付扣 1 心，3 心耗尽结束，越久越难。</p><span class="stamp" style="--c:#e8452c">♥♥♥</span></div>
+  </div>
+  <button class="btn ghost back" id="btnBackMode">← 返回</button>
+</div>
+
+<!-- 结算 -->
+<div class="screen hidden" id="scrResult">
+  <div id="resultBox">
+    <h2 id="resultTitle">结算</h2>
+    <div class="rank" id="resultRank"></div>
+    <div class="stats" id="resultStats"></div>
+    <div id="resultBest" class="newbest"></div>
+    <div class="btnrow">
+      <button class="btn" id="btnAgain">再来一局</button>
+      <button class="btn ghost" id="btnHome">返回难度选择</button>
+    </div>
+  </div>
+</div>
+
+<!-- 设置 -->
+<div class="screen hidden" id="scrSettings">
+  <h1 class="title">设置</h1>
+  <div id="settingSupply" class="toggle"><span class="box"></span><span>启用「免费补给」事件</span></div>
+  <button class="btn ghost" id="btnClearBest">清除所有记录</button>
+  <button class="btn ghost" id="btnBackSettings">← 返回</button>
+</div>
+
+<!-- 配料表 -->
+<div class="screen hidden" id="scrGlossary">
+  <div id="glossaryPanel"></div>
+  <button class="btn" id="btnCloseGlossary">关闭 (B / Esc)</button>
+</div>
+
+<!-- 教程完成 -->
+<div class="screen hidden" id="scrTutorialDone">
+  <h1 class="title">教程完成！</h1>
+  <div class="subtitle ui-text" id="tutDoneText" style="font-size:14px;"></div>
+  <div class="btnrow"><button class="btn" id="btnTutDoneBack">返回</button></div>
+</div>
+
+<!-- 暂停菜单 -->
+<div class="screen hidden" id="scrPause">
+  <h1 class="title">已暂停</h1>
+  <div class="btnrow">
+    <button class="btn" id="btnPauseResume">继续游戏</button>
+    <button class="btn ghost" id="btnPauseHome">返回主页</button>
+  </div>
+</div>
+
+<!-- 竖屏提示 -->
+<div class="screen hidden" id="scrRotate">
+  <h1 class="title">建议横屏游玩</h1>
+  <div class="subtitle ui-text" style="font-size:14px;">横屏可获得最佳视野；竖屏也能玩，但画面较小。</div>
+  <button class="btn" id="btnRotateOk">仍要继续</button>
+</div>
+
+<script>
+'use strict';
+/* ============================================================
+ * 1. 常量与配置
+ * ============================================================ */
+const VERSION='2.9.0', DATE='2026-09-08';
+const DEBUG=(new URLSearchParams(location.search)).get('debug')==='1'; // URL 加 ?debug=1 开启调试日志
+function dlog(tag,msg){ if(DEBUG) console.log('[cook]['+tag+']', msg); }
+const W=640, H=360;                 // 内部分辨率 16:9
+const TILE=16;
+const KITCHEN_TOP=32, COUNTER_Y=232, COUNTER_H=16;
+const SLOT_Y=268, DOOR_X=320;
+const COOK_TIME=6, CUT_TIME=0.8, DRINK_FILL=2, MODE_TIME=120;
+const DRINK_BONUS=50, TIMEOUT_PENALTY=60, WRONG_PENALTY=30, DRINK_ONLY_POINTS=80;
+const BASE_PATIENCE=40, BASE_BURN=5;
+const WARMUP_TIME=25;              // 热身期秒数
+/* 难度无关的全局配置：移速 / 加速缓冲（格/秒、格/秒²），调平衡只改这里 */
+const CONFIG={ playerSpeed:9, playerAccel:40 };
+
+/* ============================================================
+ * 2. 调色板（≤32 色）+ SPRITES 像素矩阵模块（24×24，唯一精灵源）
+ * ============================================================ */
+const PAL=[ null,'#17121c','#e8452c','#ff7a5a','#a82818','#3f9e2f','#8fd14f','#2a6b1f',
+  '#f0a8a0','#ffd6c8','#c07070','#c97a3e','#e0a060','#8a4a20','#5a3a20','#2a1a10',
+  '#f7f0dc','#d8cfae','#f5c542','#ffe08a','#f58a1f','#efe6cf','#d8cba8','#8a93a0',
+  '#b8c0c8','#5a6268','#ffa020','#ffc060','#5a2c10','#7a4020','#d0d8e0','#ffffff' ];
+const C={ OUT:1,RED:2,REDL:3,REDD:4,GREEN:5,GREENL:6,GREEND:7,PINK:8,PINKL:9,PINKD:10,
+  BROWN:11,BROWNL:12,BROWND:13,BURNT:14,BURNTD:15,CREAM:16,CREAMD:17,YELLOW:18,YELLOWL:19,
+  ORANGE:20,RICEW:21,RICED:22,GRAY:23,GRAYL:24,GRAYD:25,DJUICE:26,DJUICEL:27,DCOLA:28,DCOLAL:29,CUPHILITE:30,WHITE:31 };
+
+/* 像素网格构建器：二维数组 + 调色板 */
+const _sprCache={};
+function grid(){ const g=[]; for(let y=0;y<24;y++){ g[y]=[]; for(let x=0;x<24;x++) g[y][x]=0; } return g; }
+function spx(g,x,y,c){ if(x>=0&&y>=0&&x<24&&y<24) g[y][x]=c; }
+function srect(g,x,y,w,h,c){ for(let yy=y;yy<y+h;yy++) for(let xx=x;xx<x+w;xx++) spx(g,xx,yy,c); }
+function shline(g,x,y,w,c){ for(let xx=x;xx<x+w;xx++) spx(g,xx,y,c); }
+function scircle(g,cx,cy,r,c){ for(let yy=-r;yy<=r;yy++) for(let xx=-r;xx<=r;xx++) if(xx*xx+yy*yy<=r*r) spx(g,cx+xx,cy+yy,c); }
+function sellipse(g,cx,cy,rx,ry,c){ for(let yy=-ry;yy<=ry;yy++) for(let xx=-rx;xx<=rx;xx++) if((xx*xx)/(rx*rx)+(yy*yy)/(ry*ry)<=1) spx(g,cx+xx,cy+yy,c); }
+function gridCanvas(g){ const cv=document.createElement('canvas'); cv.width=24; cv.height=24; const c=cv.getContext('2d');
+  for(let y=0;y<24;y++) for(let x=0;x<24;x++){ const col=PAL[g[y][x]]; if(col){ c.fillStyle=col; c.fillRect(x,y,1,1); } } return cv; }
+function sprite(name){ if(_sprCache[name]) return _sprCache[name]; const b=SPRITE_FN[name]; if(!b) return _fallbackCanvas; return (_sprCache[name]=b()); }
+const _fallbackCanvas=(function(){ const cv=document.createElement('canvas'); cv.width=24; cv.height=24; const c=cv.getContext('2d'); c.fillStyle='#f58a1f'; c.fillRect(6,6,12,12); return cv; })();
+const SPRITE_FN={
+  /* —— 番茄：整颗(带果蒂/籽感) → 切半(果肉+籽) → 煮软(深色) → 焦黑 —— */
+  tomato_raw(){ const g=grid(); scircle(g,12,12,9,C.OUT); scircle(g,12,12,8,C.RED);
+    scircle(g,8,8,3,C.REDL); sellipse(g,14,15,6,3,C.REDD);
+    srect(g,10,2,4,3,C.GREEN); srect(g,9,3,2,2,C.GREENL); srect(g,11,4,1,2,C.GREEND); return gridCanvas(g); },
+  tomato_cut(){ const g=grid(); scircle(g,12,12,9,C.OUT); scircle(g,12,12,8,C.RED);
+    sellipse(g,9,9,5,5,C.REDL); spx(g,8,9,C.REDL); spx(g,11,11,C.REDL);  // 切面果肉
+    spx(g,9,8,C.YELLOWL); spx(g,11,9,C.YELLOWL); spx(g,8,11,C.YELLOWL); spx(g,10,12,C.YELLOWL); // 籽
+    sellipse(g,14,15,6,3,C.REDD); srect(g,10,2,4,3,C.GREEN); return gridCanvas(g); },
+  tomato_cooked(){ const g=grid(); scircle(g,12,13,9,C.OUT); scircle(g,12,13,8,C.REDD);
+    scircle(g,9,10,3,C.RED); sellipse(g,13,16,6,3,C.REDD); sellipse(g,10,15,5,3,C.REDL);
+    srect(g,10,4,4,2,C.REDD); return gridCanvas(g); },
+  tomato_burnt(){ const g=grid(); scircle(g,12,12,9,C.OUT); scircle(g,12,12,8,C.BURNT);
+    spx(g,9,10,C.BURNTD); spx(g,14,9,C.BURNTD); spx(g,11,15,C.BURNTD); spx(g,8,13,C.BURNTD);
+    sellipse(g,14,15,6,3,C.BURNTD); return gridCanvas(g); },
+  /* —— 生菜：整颗(叶脉) → 切丝(浅色丝) —— */
+  lettuce_raw(){ const g=grid(); scircle(g,12,12,9,C.OUT); scircle(g,12,12,8,C.GREEN);
+    scircle(g,8,8,3,C.GREENL); sellipse(g,14,15,6,3,C.GREEND);
+    shline(g,7,12,7,C.GREEND); shline(g,9,16,5,C.GREEND); shline(g,12,9,3,C.GREEND); return gridCanvas(g); },
+  lettuce_cut(){ const g=grid(); scircle(g,12,12,9,C.OUT); scircle(g,12,12,8,C.GREEN);
+    for(let i=0;i<5;i++) shline(g,6,7+i*3,12,C.GREENL); for(let i=0;i<4;i++) shline(g,8,9+i*3,8,C.GREENL);
+    sellipse(g,14,15,6,3,C.GREEND); return gridCanvas(g); },
+  /* —— 肉：生肉粉(脂肪纹) → 切块(网格) → 熟肉棕 → 焦黑 —— */
+  meat_raw(){ const g=grid(); sellipse(g,12,12,9,8,C.OUT); sellipse(g,12,12,8,7,C.PINK);
+    sellipse(g,8,8,3,2,C.PINKL); shline(g,7,12,9,C.PINKL); shline(g,8,15,7,C.PINKL); sellipse(g,14,15,5,3,C.PINKD); return gridCanvas(g); },
+  meat_cut(){ const g=grid(); sellipse(g,12,12,9,8,C.OUT); sellipse(g,12,12,8,7,C.PINK);
+    shline(g,6,11,12,C.PINKD); shline(g,6,15,12,C.PINKD); vline3(g,10,7,8,C.PINKD); vline3(g,14,7,8,C.PINKD); return gridCanvas(g); },
+  meat_cooked(){ const g=grid(); sellipse(g,12,12,9,8,C.OUT); sellipse(g,12,12,8,7,C.BROWN);
+    sellipse(g,8,8,3,2,C.BROWNL); shline(g,7,12,9,C.BROWNL); sellipse(g,14,15,5,3,C.BROWND); return gridCanvas(g); },
+  meat_burnt(){ const g=grid(); sellipse(g,12,12,9,8,C.OUT); sellipse(g,12,12,8,7,C.BURNT);
+    spx(g,9,10,C.BURNTD); spx(g,14,9,C.BURNTD); spx(g,10,15,C.BURNTD); sellipse(g,14,15,5,3,C.BURNTD); return gridCanvas(g); },
+  /* —— 米：谷粒 → 米饭(米粒分明) → 焦黑 —— */
+  rice_raw(){ const g=grid(); sellipse(g,12,13,8,7,C.OUT); sellipse(g,12,13,7,6,C.RICEW);
+    for(let i=0;i<10;i++){ spx(g,8+(i%4)*3,9+Math.floor(i/4)*3,C.RICED); }
+    sellipse(g,14,16,5,2,C.RICED); return gridCanvas(g); },
+  rice_cooked(){ const g=grid(); sellipse(g,12,13,8,7,C.OUT); sellipse(g,12,13,7,6,C.RICEW);
+    spx(g,9,10,C.WHITE); spx(g,13,9,C.WHITE); spx(g,11,14,C.WHITE); spx(g,8,15,C.RICED); spx(g,15,13,C.RICED); spx(g,10,17,C.RICED);
+    sellipse(g,8,9,2,1,C.RICED); return gridCanvas(g); },
+  rice_burnt(){ const g=grid(); sellipse(g,12,13,8,7,C.OUT); sellipse(g,12,13,7,6,C.BURNT);
+    spx(g,9,10,C.BURNTD); spx(g,14,11,C.BURNTD); spx(g,11,15,C.BURNTD); return gridCanvas(g); },
+  /* —— 面包胚 —— */
+  bun_raw(){ const g=grid(); sellipse(g,12,10,8,6,C.OUT); sellipse(g,12,10,7,5,C.YELLOW);
+    sellipse(g,9,8,3,2,C.YELLOWL); shline(g,7,12,10,C.YELLOWL); spx(g,12,7,C.WHITE);
+    sellipse(g,14,14,4,2,C.YELLOWL); return gridCanvas(g); },
+  /* —— 饮料：同杯型，仅液体颜色不同 —— */
+  drink_orange(){ return drinkCup(C.DJUICE, C.DJUICEL); },
+  drink_cola(){ return drinkCup(C.DCOLA, C.DCOLAL); },
+  /* —— 菜品成品 —— */
+  dish_salad(){ const g=grid(); scircle(g,12,14,9,C.OUT); scircle(g,12,14,8,C.CREAMD);
+    srect(g,6,7,12,5,C.GREEN); srect(g,7,8,10,3,C.GREENL); shline(g,8,9,8,C.GREEND);
+    spx(g,6,6,C.OUT); spx(g,17,6,C.OUT); spx(g,6,16,C.OUT); spx(g,17,16,C.OUT); return gridCanvas(g); },
+  dish_soup(){ const g=grid(); scircle(g,12,14,9,C.OUT); scircle(g,12,14,8,C.CREAMD);
+    sellipse(g,12,12,6,4,C.RED); sellipse(g,9,11,2,1,C.REDL); spx(g,14,11,C.REDL); return gridCanvas(g); },
+  dish_burger(){ const g=grid();
+    sellipse(g,12,5,7,3,C.OUT); sellipse(g,12,5,6,2,C.YELLOWL);  // 上层面包
+    shline(g,6,7,12,C.GREEN); shline(g,6,8,12,C.GREENL);          // 生菜
+    srect(g,6,9,12,3,C.BROWN); srect(g,6,9,12,1,C.BROWNL);        // 肉饼
+    srect(g,6,12,12,2,C.YELLOW); srect(g,6,14,12,2,C.YELLOWL);    // 下层面包
+    for(let x=5;x<18;x++){ spx(g,x,6,C.OUT); spx(g,x,16,C.OUT); } return gridCanvas(g); },
+  dish_friedrice(){ const g=grid(); scircle(g,12,14,9,C.OUT); scircle(g,12,14,8,C.CREAMD);
+    srect(g,6,9,12,7,C.RICEW); spx(g,9,11,C.GREEN); spx(g,14,12,C.RED); spx(g,11,14,C.BROWN); spx(g,8,15,C.RICED); spx(g,15,10,C.WHITE); return gridCanvas(g); },
+  /* —— 杂项 —— */
+  heart(){ const g=grid(); scircle(g,9,10,4,C.RED); scircle(g,15,10,4,C.RED); srect(g,6,11,12,8,C.RED); spx(g,9,9,C.REDL); spx(g,15,9,C.REDL); scircle(g,9,10,4,C.OUT); scircle(g,15,10,4,C.OUT); return gridCanvas(g); },
+  anger(){ const g=grid(); srect(g,7,8,3,2,C.RED); srect(g,14,8,3,2,C.RED); shline(g,7,11,4,C.RED); shline(g,13,11,4,C.RED);
+    shline(g,8,14,8,C.RED); spx(g,9,9,C.REDL); spx(g,15,9,C.REDL); return gridCanvas(g); },
+  fire(){ const g=grid(); sellipse(g,12,16,5,6,C.OUT); sellipse(g,12,16,4,5,C.RED); sellipse(g,12,14,3,4,C.ORANGE); sellipse(g,12,12,2,2,C.YELLOWL);
+    spx(g,12,8,C.YELLOWL); spx(g,11,9,C.YELLOW); return gridCanvas(g); },
+  knife(){ const g=grid(); srect(g,15,5,3,12,C.GRAYL); srect(g,16,5,2,12,C.GRAY); spx(g,17,5,1,12,C.GRAYD);
+    srect(g,16,16,2,3,C.BROWN); srect(g,15,17,4,2,C.BROWN); srect(g,16,18,2,2,C.BROWND); return gridCanvas(g); },
+  exting(){ const g=grid(); srect(g,10,4,4,2,C.GRAY); srect(g,8,6,8,14,C.RED); srect(g,9,6,1,14,C.REDL);
+    srect(g,9,11,6,3,C.GRAYL); srect(g,8,14,8,1,C.OUT); srect(g,8,6,8,14,C.OUT);
+    srect(g,7,7,1,12,C.REDL); return gridCanvas(g); },
+  clock(){ const g=grid(); scircle(g,12,12,9,C.OUT); scircle(g,12,12,8,C.GRAYL); scircle(g,12,12,7,C.GRAY);
+    spx(g,12,5,C.GRAYD); spx(g,12,19,C.GRAYD); spx(g,5,12,C.GRAYD); spx(g,19,12,C.GRAYD); shline(g,12,12,3,C.GRAYD); spx(g,12,9,1,3,C.GRAYD); return gridCanvas(g); },
+  box(){ const g=grid(); srect(g,6,6,12,12,C.OUT); srect(g,7,7,10,10,C.YELLOW); shline(g,7,7,10,2,C.YELLOWL);
+    shline(g,11,7,2,10,C.YELLOW); srect(g,7,7,10,1,C.OUT); return gridCanvas(g); },
+  rat(){ const g=grid(); sellipse(g,9,16,6,4,C.GRAY); sellipse(g,16,12,4,3,C.GRAY);
+    spx(g,18,11,C.GRAYL); spx(g,19,12,C.GRAYD); spx(g,8,15,C.GRAYL); srect(g,17,13,2,1,C.GRAYD); spx(g,19,12,1,1,C.BURNT); return gridCanvas(g); },
+};
+function vline3(g,x,y,h,c){ for(let yy=y;yy<y+h;yy++) spx(g,x,yy,c); }
+function drinkCup(liq, liqL){
+  const g=grid();
+  srect(g,8,5,8,2,C.OUT); srect(g,8,7,8,14,C.OUT); srect(g,9,7,6,13,C.GRAYL); srect(g,10,7,1,13,C.CUPHILITE);
+  srect(g,9,10,6,10,liq); srect(g,10,10,1,10,liqL); spx(g,11,12,1,1,liqL);
+  srect(g,11,5,2,3,C.GRAYL); return gridCanvas(g);
+}
+
+/* ============================================================
+ * 3. 食材 / 配方 / 难度 / 事件 配置
+ * ============================================================ */
+const ING={
+  tomato:{ name:'番茄', cuttable:true, cookable:true, needCut:true, sp:{raw:'tomato_raw',cut:'tomato_cut',cooked:'tomato_cooked',burnt:'tomato_burnt'} },
+  lettuce:{ name:'生菜', cuttable:true, cookable:false, needCut:false, sp:{raw:'lettuce_raw',cut:'lettuce_cut',cooked:'lettuce_raw',burnt:'lettuce_raw'} },
+  meat:{ name:'肉', cuttable:true, cookable:true, needCut:true, sp:{raw:'meat_raw',cut:'meat_cut',cooked:'meat_cooked',burnt:'meat_burnt'} },
+  rice:{ name:'米', cuttable:false, cookable:true, needCut:false, sp:{raw:'rice_raw',cut:'rice_raw',cooked:'rice_cooked',burnt:'rice_burnt'} },
+  bun:{ name:'面包胚', cuttable:false, cookable:false, needCut:false, sp:{raw:'bun_raw',cut:'bun_raw',cooked:'bun_raw',burnt:'bun_raw'} },
+};
+const RECIPES={
+  salad:{ id:'salad', name:'生菜沙拉', stars:1, points:100, sprite:'dish_salad', parts:[['lettuce','cut'],['tomato','cut']] },
+  soup:{ id:'soup', name:'番茄汤', stars:2, points:150, sprite:'dish_soup', parts:[['tomato','cooked']] },
+  burger:{ id:'burger', name:'汉堡', stars:3, points:220, sprite:'dish_burger', parts:[['bun','raw'],['meat','cooked'],['lettuce','cut']] },
+  friedRice:{ id:'friedRice', name:'炒饭', stars:3, points:220, sprite:'dish_friedrice', parts:[['meat','cooked'],['rice','cooked']] },
+};
+const DRINKS={ orange:{ name:'橙汁', sprite:'drink_orange', color:'#ffa020' }, cola:{ name:'可乐', sprite:'drink_cola', color:'#5a2c10' } };
+const STATE_NAMES={ raw:'原材', cut:'切好', cooked:'煮熟', burnt:'烧糊' };
+/* 饮料机唯一参数化配置：饮品 ID / 颜色 / 机台位置（单一通用逻辑，无复制粘贴） */
+const DRINK_MACHINES=[
+  { id:'juice', drink:'orange', x:24, y:168 },
+  { id:'cola',  drink:'cola',  x:112, y:168 },
+];
+
+/* 难度：客人耐心乘数 / 烧糊速度倍率 / 事件间隔（热身期全局 25s） */
+const DIFFICULTIES={
+  easy:{ name:'轻松', maxOrders:1, burn:false, burnSpeed:Infinity, patienceMult:1.5, eventInterval:25, events:'positive', color:'#4caf50',
+         orderWeights:{dish:0.35,combo:0.35,drink:0.30} },
+  normal:{ name:'标准', maxOrders:2, burn:false, burnSpeed:Infinity, patienceMult:1.15, eventInterval:20, events:'positive', color:'#f5a623',
+         orderWeights:{dish:0.45,combo:0.35,drink:0.20} },
+  hell:{ name:'地狱', maxOrders:3, burn:true, burnSpeed:1.25, patienceMult:0.95, eventInterval:30, events:'all', color:'#e53935',
+         orderWeights:{dish:0.45,combo:0.35,drink:0.20} },
+};
+
+const EVENTS={
+  fire:{ name:'灶台起火', icon:'fire', neg:true },
+  rat:{ name:'老鼠偷菜', icon:'rat', neg:true },
+  blackout:{ name:'停电', icon:'clock', neg:true },
+  rush:{ name:'顾客催单', icon:'clock', neg:true },
+  supply:{ name:'免费补给', icon:'box', neg:false },
+};
+
+/* ============================================================
+ * 4. 设置
+ * ============================================================ */
+const SETTINGS={ supply:true };
+try { if(localStorage.getItem('cooking_supply')==='off') SETTINGS.supply=false; } catch(e){}
+function saveSettings(){ try{ localStorage.setItem('cooking_supply', SETTINGS.supply?'on':'off'); }catch(e){} }
+function tutorialSeen(){ try{ return localStorage.getItem('cooking_tutorial_seen')==='1'; }catch(e){ return false; } }
+function markTutorialSeen(){ try{ localStorage.setItem('cooking_tutorial_seen','1'); }catch(e){} }
+/* —— 历史最高分：3 难度 × 2 模式 = 6 组记录 —— */
+function bestKey(diffName, mode){ return 'cm_best_'+diffName+'_'+mode; }
+function loadBest(diffName, mode){ try{ const v=localStorage.getItem(bestKey(diffName,mode)); return v?JSON.parse(v):null; }catch(e){ return null; } }
+function saveBest(diffName, mode, rec){ try{ localStorage.setItem(bestKey(diffName,mode), JSON.stringify(rec)); }catch(e){} }
+function clearAllBest(){ try{ for(const k in DIFFICULTIES){ localStorage.removeItem(bestKey(k,'time')); localStorage.removeItem(bestKey(k,'endless')); } }catch(e){} }
+function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function diffKey(){ return Object.keys(DIFFICULTIES).find(k=>DIFFICULTIES[k]===G.difficulty)||'normal'; }
+
+/* ============================================================
+ * 5. 工具 / 音效 / 输入
+ * ============================================================ */
+const rand=(a,b)=>a+Math.random()*(b-a);
+const randInt=(a,b)=>Math.floor(rand(a,b+1));
+const clamp=(v,a,b)=>v<a?a:(v>b?b:v);
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+function weightedPick(w){ let t=0; for(const k in w) t+=w[k]; let r=Math.random()*t; for(const k in w){ r-=w[k]; if(r<=0) return k; } return Object.keys(w)[0]; }
+function fillRect(c,x,y,w,h){ ctx.fillStyle=c; ctx.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h)); }
+function blit(name,x,y,w,h){ ctx.imageSmoothingEnabled=false; ctx.drawImage(sprite(name),Math.round(x),Math.round(y),w||24,h||24); }
+
+const SFX={
+  ctx:null,
+  ensure(){ try{ if(!this.ctx) this.ctx=new (window.AudioContext||window.webkitAudioContext)(); if(this.ctx.state==='suspended') this.ctx.resume(); return this.ctx; }catch(e){ return null; } },
+  tone(f,dur,type,vol,delay,slide){ if(G.paused) return; const c=this.ensure(); if(!c) return; try{ const o=c.createOscillator(),g=c.createGain(); o.type=type||'square'; o.frequency.value=f; if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(30,slide),c.currentTime+dur); const t=c.currentTime+(delay||0); g.gain.setValueAtTime(.0001,t); g.gain.exponentialRampToValueAtTime(vol||.1,t+.01); g.gain.exponentialRampToValueAtTime(.0001,t+dur); o.connect(g); g.connect(c.destination); o.start(t); o.stop(t+dur+.02); }catch(e){} },
+  pick(){ this.tone(520,.06,'square',.09); this.tone(760,.05,'square',.07,.04); },
+  put(){ this.tone(300,.06,'square',.09); },
+  chop(){ this.tone(180,.1,'sawtooth',.16,0,70); this.tone(140,.1,'sawtooth',.1,.05,60); },
+  cookdone(){ this.tone(660,.12,'sine',.12); this.tone(880,.16,'sine',.1,.1); },
+  fill(){ this.tone(220,.18,'sine',.08,0,480); },
+  success(){ [523,659,784,1047].forEach((f,i)=>this.tone(f,.15,'triangle',.12,i*.06)); },
+  error(){ this.tone(150,.3,'sawtooth',.2,0,60); },
+  timeout(){ [440,349,262].forEach((f,i)=>this.tone(f,.18,'square',.1,i*.12)); },
+  exting(){ this.tone(600,.06,'square',.1,0,800); },
+  fire(){ this.tone(90,.4,'sawtooth',.14,0,40); },
+  heart(){ this.tone(220,.4,'sine',.18,0,110); },
+  enter(){ this.tone(400,.08,'square',.07); this.tone(600,.08,'square',.06,.06); },
+  step(){ this.tone(720,.08,'square',.08); this.tone(960,.1,'square',.07,.07); },
+};
+
+const keys={}; const touch={ active:false, dx:0, dy:0 }; let joyId=null;
+addEventListener('keydown', (e)=>{
+  const c=e.code;
+  if(c==='ArrowUp'||c==='ArrowDown'||c==='ArrowLeft'||c==='ArrowRight'||c==='Space'||c==='Tab') e.preventDefault();
+  // 暂停菜单键盘导航（↑↓ + 回车）
+  if (G.pauseMenu){
+    if(c==='ArrowUp'||c==='ArrowDown'){ pauseMenuNav(c==='ArrowUp'?-1:1); return; }
+    if(c==='Enter'||c==='Space'){ activatePauseMenuItem(); return; }
+    if(c==='Escape'){ closePauseMenu(); return; }
+    return;
+  }
+  keys[c]=true;
+  if((c==='KeyE'||c==='Space'||c==='Enter') && !e.repeat){ dlog('key','交互键命中 '+c); onInteractPressed(); }
+  if(c==='KeyP') togglePauseMenu();
+  if((c==='KeyB'||c==='Tab') && !e.repeat) toggleGlossary();
+  if(c==='Escape') onMenuPressed(); // ESC / 触屏"菜单"键统一入口
+});
+addEventListener('keyup',(e)=>{ keys[e.code]=false; });
+document.addEventListener('contextmenu',(e)=>e.preventDefault()); // 禁长按弹菜单（手机）
+function setupTouch(){
+  if(!(('ontouchstart' in window)||navigator.maxTouchPoints>0)) return;
+  document.getElementById('touch').style.display='block';
+  const joy=document.getElementById('joy'), knob=document.getElementById('joyKnob');
+  joy.addEventListener('touchstart',(e)=>{ joyId=e.changedTouches[0].identifier; setJoy(e); e.preventDefault(); });
+  joy.addEventListener('touchmove',(e)=>{ setJoy(e); e.preventDefault(); });
+  joy.addEventListener('touchend',(e)=>{ if(e.changedTouches[0].identifier===joyId){ touch.active=false; touch.dx=touch.dy=0; knob.style.left='50%'; knob.style.top='50%'; } });
+  document.getElementById('btnE').addEventListener('touchstart',(e)=>{ onInteractPressed(); e.preventDefault(); });
+}
+function setJoy(e){
+  const joy=document.getElementById('joy'), knob=document.getElementById('joyKnob');
+  const r=joy.getBoundingClientRect(); const cx=r.left+r.width/2, cy=r.top+r.height/2;
+  let t=null; for(const tc of e.changedTouches) if(tc.identifier===joyId) t=tc;
+  if(!t) return;
+  let dx=t.clientX-cx, dy=t.clientY-cy; const m=Math.hypot(dx,dy), max=r.width/2-26;
+  if(m>max){ dx=dx/m*max; dy=dy/m*max; }
+  knob.style.left=(cx-r.left+dx)+'px'; knob.style.top=(cy-r.top+dy)+'px';
+  touch.active=true; touch.dx=dx/max; touch.dy=dy/max;
+}
+
+/* ============================================================
+ * 6. 实体与状态
+ * ============================================================ */
+function mkIngredient(type,state){ return { type:'ingredient', ing:type, state:state||'raw' }; }
+/* —— 组合系统：单品=ingredient；组合组/成品=item{ id,count,parts }。
+ * id：中间态=首个食材精灵名，完成瞬间=成品菜品ID；渲染/交付只认 id。 —— */
+/* 统一 parts 元素格式为 [食材ID, 状态]，与 RECIPES.parts 完全一致（修复：此前返回对象导致键恒为 undefined:undefined） */
+function toParts(h){ if(h.type==='ingredient') return [[h.ing,h.state]]; if(h.type==='item') return h.parts.slice(); return []; }
+function subMultiset(parts, recipeParts){
+  const need={}; for(const p of recipeParts){ const k=p[0]+':'+p[1]; need[k]=(need[k]||0)+1; }
+  for(const p of parts){ const k=p[0]+':'+p[1]; if(!need[k]) return false; need[k]--; }
+  return true;
+}
+function isLegalSubset(parts){ return Object.values(RECIPES).some(r=>subMultiset(parts, r.parts)); }
+function matchRecipe(parts){
+  const a=parts.map(p=>p[0]+':'+p[1]).sort().join('|');
+  return Object.values(RECIPES).find(r=> r.parts.map(p=>p[0]+':'+p[1]).sort().join('|')===a);
+}
+/* —— 全游戏唯一的成品判定入口 ——
+ * 传入 ingredient 或 item：命中完整配方 → 返回 id=成品ID 的 item；否则原样返回。
+ * 任何物品状态变化点（合并 / 煮熟完成 / 出锅 / 台面拿起 / 灌装完成）都必须调用本函数。 */
+function checkAndTransform(obj, fxX, fxY){
+  if (!obj) return obj;
+  if (obj.type!=='ingredient' && obj.type!=='item') return obj;   // 饮料/灭火器不参与成品判定
+  const parts = toParts(obj);
+  if (!parts.length) return obj;
+  const r = matchRecipe(parts);
+  if (r){
+    if (!(obj.type==='item' && obj.id===r.id)){                    // 首次完成 → 反馈
+      SFX.success();
+      addFloatAt(fxX!=null?fxX:G.player.x, fxY!=null?fxY:G.player.y-24, '完成 '+r.name+'！', '#8fd14f');
+    }
+    return { type:'item', id:r.id, count:parts.length, parts };
+  }
+  if (obj.type==='ingredient') return obj;                         // 仅构成部分配方 → 保持食材态，不误转
+  return { type:'item', id:ING[parts[0][0]].sp[parts[0][1]], count:parts.length, parts };
+}
+/* 由 parts 构造组合组并立即做成品判定 */
+function makeGroup(parts){ return checkAndTransform({ type:'item', id:ING[parts[0][0]].sp[parts[0][1]], count:parts.length, parts }); }
+function isIngredient(it){ return it && it.type==='ingredient'; }
+function itemSprite(it){
+  if(it.type==='ingredient'){ const g=ING[it.ing]; return g.sp[it.state]||g.sp.raw; }
+  if(it.type==='item') return RECIPES[it.id] ? RECIPES[it.id].sprite : it.id; // 成品ID查表取图，中间态id即精灵名
+  if(it.type==='drink') return DRINKS[it.drink].sprite;
+  if(it.type==='extinguisher') return 'exting';
+  return null;
+}
+function makeStation(id,type,x,y,w,h,opt){ return Object.assign({ id,type,x,y,w,h,cx:x+w/2,cy:y+h/2,surface:null,progress:0,cooking:false,cutting:false,burning:false,fire:0,fxTimer:0 },opt||{}); }
+function buildStations(){
+  const S=[];
+  const cx=[24,112,200,288,376,464,552], ry=[40,104,168];
+  // 第 1 行：货架 + 配菜台
+  S.push(makeStation('crate_tomato','crate',cx[0],ry[0],28,28,{ing:'tomato'}));
+  S.push(makeStation('crate_lettuce','crate',cx[1],ry[0],28,28,{ing:'lettuce'}));
+  S.push(makeStation('crate_meat','crate',cx[2],ry[0],28,28,{ing:'meat'}));
+  S.push(makeStation('crate_rice','crate',cx[3],ry[0],28,28,{ing:'rice'}));
+  S.push(makeStation('crate_bun','crate',cx[4],ry[0],28,28,{ing:'bun'}));
+  S.push(makeStation('prep1','counter',cx[5],ry[0],28,28,{}));
+  S.push(makeStation('prep2','counter',cx[6],ry[0],28,28,{}));
+  // 第 2 行：砧板 + 锅 + 灭火器
+  S.push(makeStation('board1','board',cx[0],ry[1],28,28,{}));
+  S.push(makeStation('board2','board',cx[1],ry[1],28,28,{}));
+  S.push(makeStation('board3','board',cx[2],ry[1],28,28,{}));
+  S.push(makeStation('pot1','pot',cx[3],ry[1],28,28,{}));
+  S.push(makeStation('pot2','pot',cx[4],ry[1],28,28,{}));
+  S.push(makeStation('pot3','pot',cx[5],ry[1],28,28,{}));
+  S.push(makeStation('exting','exting',cx[6],ry[1],28,28,{}));
+  // 第 3 行：饮料机（由 DRINK_MACHINES 统一生成）+ 配菜台
+  for(const m of DRINK_MACHINES) S.push(makeStation(m.id,'drink',m.x,m.y,28,28,{drink:m.drink, color:DRINKS[m.drink].color}));
+  for(let i=2;i<7;i++) S.push(makeStation('counter'+(i-1),'counter',cx[i],ry[2],28,28,{}));
+  // 前台（横在厨房与大堂之间）
+  S.push(makeStation('serving','serving',8,COUNTER_Y,624,COUNTER_H,{}));
+  return S;
+}
+/* 客人外观 */
+const SKINS=['#f6c89f','#e8b184','#c98a5b','#8a5a3a','#f0d0b0'];
+const HAIR_COLORS=['#3a2414','#7a4a1e','#c97a3e','#1a1a1a','#d0a030'];
+const SHIRT_COLORS=['#4c7ef2','#e8452c','#3f9e2f','#f5c542','#b05adf','#2aa7a0'];
+const BODY_TYPES=['normal','tall','short','wide'];
+const HAIR_STYLES=['buzz','side','long','spiky','bald','bun'];
+const HAT_STYLES=['none','chef','cap','beanie','crown','band'];
+function randomLook(){ return { skin:SKINS[randInt(0,4)], hair:HAIR_COLORS[randInt(0,4)], shirt:SHIRT_COLORS[randInt(0,5)], body:BODY_TYPES[randInt(0,3)], hairStyle:HAIR_STYLES[randInt(0,5)], hat:HAT_STYLES[randInt(0,5)] }; }
+function lookKey(l){ return l.skin+l.hair+l.shirt+l.body+l.hairStyle+l.hat; }
+function uniqueLook(){ for(let i=0;i<30;i++){ const l=randomLook(); const used=G.customers.filter(c=>c.state!=='gone').map(c=>lookKey(c.look)); if(!used.includes(lookKey(l))) return l; } return randomLook(); }
+
+const G={
+  running:false, paused:false, difficulty:null, mode:null, tutorial:null, glossaryOpen:false, pauseMenu:false,
+  player:{ x:520, y:88, r:9, vx:0, vy:0, facing:1, walk:0, moving:false, held:null },
+  stations:[], customers:[], slots:[], ground:[], rats:[], particles:[], floats:[],
+  score:0, combo:0, completed:0, mistakes:0,
+  timeLeft:MODE_TIME, elapsed:0, hearts:3,
+  refreshTimer:1, nextEventIn:0, bannerEvent:null, blackout:0, shake:0, fireGlow:0, fill:null, recentModes:[], banner:null,
+};
+
+/* ============================================================
+ * 7. 订单 / 客人
+ * ============================================================ */
+function slotX(i,n){ return Math.round(W*(i+1)/(n+1)); }
+function freeSlotIndex(){ for(let i=0;i<G.slots.length;i++) if(!G.slots[i].occupied) return i; return -1; }
+function makeCustomer(slot, scripted){
+  const n=G.difficulty?G.difficulty.maxOrders:4;
+  return { x:DOOR_X, y:376, tx:slotX(slot,n), ty:SLOT_Y, slot, state:'enter', look:uniqueLook(), walkPhase:rand(0,3),
+    mood:0, order:null, foodDone:false, drinkDone:false, reactT:0, reactType:'happy', infinitePatience:false, scripted:scripted||null };
+}
+function assignOrder(c){
+  let mode, dish, drink;
+  if (c.scripted){ mode=c.scripted.mode; dish=c.scripted.recipe; drink=c.scripted.drink; }
+  else {
+    mode=pickOrderMode();
+    dish=(mode==='drink')?null:pickUniqueRecipe();
+    drink=(mode==='combo'||mode==='drink')?(Math.random()<0.5?'orange':'cola'):null;
+  }
+  const base=effectivePatience();
+  const patience=(mode==='drink')?base*0.7:base;
+  c.order={ mode, recipe:dish, drink, patience, total:patience, done:[] }; // done = 已完成需求 token 集合（无序）
+  c.foodDone=false; c.drinkDone=false;
+  c.infinitePatience = (G.mode==='tutorial');
+}
+function effectivePatience(){
+  const d=G.difficulty;
+  let p=BASE_PATIENCE*d.patienceMult;
+  if (G.mode==='endless') p*=endlessPatienceScale();
+  if (G.elapsed < WARMUP_TIME) p*=1.3; // 热身期
+  return p;
+}
+function endlessPatienceScale(){
+  const tier=Math.min(5, Math.floor(G.elapsed/60));
+  return Math.max(0.65, 1 - tier*0.07);
+}
+function pickOrderMode(){
+  const w=G.difficulty.orderWeights;
+  let mode=weightedPick(w);
+  if (G.recentModes.length>=2 && G.recentModes[0]===mode && G.recentModes[1]===mode){
+    const others=['dish','combo','drink'].filter(m=>m!==mode);
+    mode=weightedPick({ [others[0]]:w[others[0]], [others[1]]:w[others[1]] });
+  }
+  G.recentModes=[mode,...G.recentModes].slice(0,3);
+  return mode;
+}
+function pickUniqueRecipe(){
+  const used=new Set(G.customers.filter(c=>c.order&&c.order.recipe&&c.state!=='gone').map(c=>c.order.recipe.id));
+  const avail=Object.values(RECIPES).filter(r=>!used.has(r.id));
+  if(!avail.length) return randomRecipe();
+  return avail[randInt(0,avail.length-1)];
+}
+function randomRecipe(){ const ks=Object.keys(RECIPES); return RECIPES[ks[randInt(0,ks.length-1)]]; }
+function trySpawnCustomer(){
+  if (G.mode==='tutorial') return;
+  const active=G.customers.filter(c=>c.state!=='gone'&&c.state!=='leave').length;
+  if (active>=G.difficulty.maxOrders) return;
+  const slot=freeSlotIndex(); if(slot<0) return;
+  G.slots[slot].occupied=true;
+  G.customers.push(makeCustomer(slot));
+  SFX.enter();
+}
+function removeCustomer(c){ c.state='gone'; if(c.slot!=null) G.slots[c.slot].occupied=false; }
+function updateCustomers(dt){
+  for (const c of G.customers){
+    if (c.state==='gone') continue;
+    c.walkPhase += dt*((c.state==='enter'||c.state==='leave')?9:0);
+    if (c.state==='enter'){
+      const dx=c.tx-c.x, dy=c.ty-c.y, d=Math.hypot(dx,dy);
+      if (d<3){ c.x=c.tx; c.y=c.ty; c.state='queue'; assignOrder(c); }
+      else { c.x+=dx/d*48*dt; c.y+=dy/d*48*dt; }
+    } else if (c.state==='queue'){
+      if (!c.infinitePatience){
+        c.order.patience -= dt;
+        const f=c.order.patience/c.order.total;
+        c.mood = f>0.5?0:(f>0.25?1:2);
+        if (c.order.patience<=0) timeoutCustomer(c);
+      } else c.mood=0;
+    } else if (c.state==='react'){
+      c.reactT += dt;
+      if (c.reactT>0.8) c.state='leave';
+    } else if (c.state==='leave'){
+      const dx=DOOR_X-c.x, dy=380-c.y, d=Math.hypot(dx,dy);
+      c.x+=dx/d*52*dt; c.y+=dy/d*52*dt;
+      if (c.y>374) removeCustomer(c);
+    }
+  }
+  G.refreshTimer -= dt;
+  const interval = (G.mode==='endless') ? Math.max(3.2, 7 - Math.min(5,Math.floor(G.elapsed/60))*0.8) : (G.elapsed<WARMUP_TIME?7:5);
+  if (G.refreshTimer<=0){ trySpawnCustomer(); G.refreshTimer=interval; }
+}
+
+/* ============================================================
+ * 8. 交付 / 结算 / 事件 / 饮料
+ * ============================================================ */
+/* —— 订单需求 = 无序 token 集合：'dish:<菜ID>' / 'drink:<饮料>'，不依赖交付顺序 —— */
+function orderTokens(c){ const t=[]; if(c.order.recipe) t.push('dish:'+c.order.recipe.id); if(c.order.drink) t.push('drink:'+c.order.drink); return t; }
+function orderRemaining(c){ const done=c.order.done||[]; return orderTokens(c).filter(t=>!done.includes(t)); }
+function orderComplete(c){ return orderRemaining(c).length===0; }
+function orderRemainingNames(c){ return orderRemaining(c).map(t=>t.startsWith('dish:')?'菜品':'饮料').join('+'); }
+
+function handleServe(){
+  const p=G.player, h=p.held; if(!h) return;
+  const queued=G.customers.filter(c=>['queue','react'].includes(c.state));
+  // 手持物 → 需求 token（成品菜 / 饮料）
+  let token=null;
+  if (h.type==='item' && RECIPES[h.id]) token='dish:'+h.id;
+  else if (h.type==='drink') token='drink:'+h.drink;
+  if (!token){ wrongDelivery('还没有完成菜品'); return; }
+  // 命中订单中任意一个未完成需求即可；候选按"距离最近"分配（纯饮料单顾客更近时优先拿到饮料）
+  const cands=queued.filter(c=>c.order && orderRemaining(c).includes(token));
+  if (!cands.length){ wrongDelivery(h.type==='drink'?'没有客人需要此饮料':'菜品与订单不符'); return; }
+  cands.sort((a,b)=>dist(p,a)-dist(p,b));
+  const c=cands[0];
+  c.order.done.push(token);
+  if (token.startsWith('drink:')) c.drinkDone=true; else c.foodDone=true;
+  p.held=null; SFX.success();
+  if (orderComplete(c)) settleCustomer(c);                                   // 全部需求齐 → 结算满分
+  else addFloatAt(c.x, c.y-40, '还差 '+orderRemainingNames(c), '#8fd14f');   // 部分交付：不计分也不扣分
+}
+function settleCustomer(c){
+  const o=c.order;
+  let pts = o.mode==='dish'?o.recipe.points:(o.mode==='combo'?o.recipe.points+DRINK_BONUS:DRINK_ONLY_POINTS);
+  const mult=1+Math.min(G.combo,5)*0.10;
+  const gained=Math.round(pts*mult);
+  G.score+=gained; G.combo++; G.completed++;
+  c.mood=0; c.reactT=0; c.state='react'; c.reactType='happy';
+  SFX.success();
+  addFloatAt(c.x,c.y-44,'+'+gained+(mult>1?' x'+G.combo:''),'#f5c542');
+  spawnHeart(c.x,c.y-26);
+}
+function timeoutCustomer(c){
+  c.mood=2; c.reactT=0; c.state='react'; c.reactType='angry';
+  if (G.mode==='time'){ G.score-=TIMEOUT_PENALTY; G.mistakes++; addFloatAt(c.x,c.y-44,'-'+TIMEOUT_PENALTY+' 超时','#ff6b6b'); }
+  else if (G.mode==='endless'){ G.hearts--; addFloatAt(c.x,c.y-44,'-1♥','#ff6b6b'); SFX.heart(); }
+  G.combo=0;
+  if (G.mode==='time') SFX.timeout();
+  if (G.mode==='endless'&&G.hearts<=0) endGame();
+}
+function wrongDelivery(msg){
+  if (G.mode==='time'){ G.score-=WRONG_PENALTY; G.mistakes++; addFloatAt(G.player.x,G.player.y-24,'-'+WRONG_PENALTY+' '+msg,'#ff6b6b'); }
+  else if (G.mode==='endless'){ G.hearts--; addFloatAt(G.player.x,G.player.y-24,'-1♥','#ff6b6b'); SFX.heart(); }
+  G.combo=0; G.shake=0.35;
+  if (G.mode==='time') SFX.error();
+  if (G.mode==='endless'&&G.hearts<=0) endGame();
+}
+function startFill(st){ if(G.player.held) return; G.fill={st,t:0}; SFX.fill(); dlog('fill','开始灌装 '+st.id+'('+DRINKS[st.drink].name+')'); }
+function updateFill(dt){
+  const f=G.fill; if(!f) return;
+  // 根因修复：原先用 dist(player, station) 量到工作台“左上角”，右侧/下方靠近时误判超距立即取消。
+  // 改为与 nearestStation 一致的“矩形最近边”判定，四周对称。
+  const dx=clamp(G.player.x,f.st.x,f.st.x+f.st.w)-G.player.x;
+  const dy=clamp(G.player.y,f.st.y,f.st.y+f.st.h)-G.player.y;
+  if (Math.hypot(dx,dy) > G.player.r+14){ dlog('fill','取消：离开机器范围 '+f.st.id); G.fill=null; return; }
+  f.t+=dt;
+  if (f.t>=DRINK_FILL){ G.player.held=checkAndTransform({type:'drink',drink:f.st.drink}); G.fill=null; SFX.success(); addFloatAt(G.player.x,G.player.y-24,'饮料完成','#8fd14f'); dlog('fill','完成：获得 '+DRINKS[f.st.drink].name); }
+}
+function pickEvent(){
+  const d=G.difficulty;
+  let pool = d.events==='all' ? ['fire','rat','blackout','rush','supply'] : ['supply'];
+  if (!SETTINGS.supply) pool=pool.filter(e=>e!=='supply');
+  if (!pool.length) return null;
+  return pool[randInt(0,pool.length-1)];
+}
+function triggerEvent(name){
+  const ev=EVENTS[name];
+  bannerFlash(ev.icon, ev.name+'！', ev.neg);
+  if (name==='fire'){ const pots=G.stations.filter(s=>s.type==='pot'&&s.fire<=0); if(pots.length){ const p=pots[randInt(0,pots.length-1)]; p.fire=1; p.burning=true; SFX.fire(); } }
+  else if (name==='rat') spawnRat();
+  else if (name==='blackout') G.blackout=5;
+  else if (name==='rush'){ const q=G.customers.filter(c=>c.state==='queue'); if(q.length){ const c=q[randInt(0,q.length-1)]; c.order.patience=Math.min(c.order.patience,c.order.patience/2); c.mood=2; } }
+  else if (name==='supply'){ const types=['tomato','lettuce','meat']; const t=types[randInt(0,2)]; G.ground.push({x:rand(80,560),y:COUNTER_Y-10,item:mkIngredient(t,'cut')}); SFX.pick(); }
+}
+function spawnRat(){
+  const side=randInt(0,3); let x,y;
+  if (side===0){ x=16; y=rand(50,210); } else if (side===1){ x=W-16; y=rand(50,210); }
+  else if (side===2){ x=rand(30,W-30); y=50; } else { x=rand(30,W-30); y=210; }
+  const target=pickSurfaceTarget();
+  G.rats.push({x,y,tx:target?target.cx:x,ty:target?target.cy:y,st:target,state:'in',fleeT:0});
+}
+function pickSurfaceTarget(){ const cands=G.stations.filter(s=>s.surface&&(s.type==='board'||s.type==='pot'||s.type==='counter')); return cands.length?cands[randInt(0,cands.length-1)]:null; }
+function scareRat(r){ if(r.state==='in'){ r.state='out'; r.fleeT=0; SFX.error(); addFloatAt(r.x,r.y-12,'赶走了！','#aef'); } }
+
+/* ============================================================
+ * 9. 交互
+ * ============================================================ */
+function onInteractPressed(){
+  if (!G.running || G.paused) return;
+  const p=G.player;
+  for (const r of G.rats) if (dist(p,r)<20){ scareRat(r); return; }
+  let bg=null,bd=1e9;
+  for (const g of G.ground){ const d=dist(p,g); if (d<20&&d<bd){ bd=d; bg=g; } }
+  if (bg){ if(!p.held){ p.held=bg.item; G.ground.splice(G.ground.indexOf(bg),1); SFX.pick(); } return; }
+  const st=nearestStation(); if(!st) return;
+  dlog('interact','目标站台 id='+st.id+' type='+st.type+(st.drink?' drink='+st.drink:'')+' held='+(p.held?(p.held.type+(p.held.drink?':'+p.held.drink:(p.held.ing?':'+p.held.ing+':'+p.held.state:''))):'空'));
+  if (st.type==='pot'&&st.fire>0){
+    if (p.held&&p.held.type==='extinguisher'){ st.fire-=0.34; SFX.exting(); spawnBurst(st.cx,st.cy,'#9ad7ff',8); if(st.fire<=0){ st.fire=0; st.burning=false; addFloatAt(st.cx,st.cy-18,'扑灭！','#aef'); } }
+    else addFloatAt(p.x,p.y-24,'需要灭火器！','#ffb3ba');
+    return;
+  }
+  switch(st.type){
+    case 'crate': if(!p.held){ p.held=mkIngredient(st.ing,'raw'); SFX.pick(); } break;
+    case 'exting': if(!p.held){ p.held={type:'extinguisher'}; SFX.pick(); } else if(p.held.type==='extinguisher'){ p.held=null; SFX.put(); } break;
+    case 'drink': if(!p.held) startFill(st); break;
+    case 'serving': handleServe(); break;
+    case 'board': case 'pot': handleProcess(st); break;
+    case 'counter': handleCounter(st); break;
+  }
+}
+function canCut(it){ return isIngredient(it)&&it.state==='raw'&&ING[it.ing].cuttable; }
+function canCook(it){ return isIngredient(it)&&ING[it.ing].cookable&&(it.state==='cut'||(it.ing==='rice'&&it.state==='raw')); }
+/* 砧板/锅：只处理单个食材（切/煮） */
+function handleProcess(st){
+  const p=G.player, h=p.held;
+  if (!h){ // 从锅/砧板拿起 → 统一成品判定（保证 锅→手 与 锅→台面→手 结果一致）
+    if(st.surface){ p.held=checkAndTransform(st.surface, st.cx, st.cy-20); st.surface=null; st.progress=0; st.cutting=st.cooking=st.burning=false; SFX.pick(); }
+    return;
+  }
+  if (st.surface) return; // 台面已占用，先取走
+  if (!isIngredient(h)){ addFloatAt(p.x,p.y-24,'只能放单个食材','#ffb3ba'); return; }
+  st.surface=h; p.held=null; st.progress=0; st.cutting=st.cooking=st.burning=false;
+  if (st.type==='board'&&canCut(h)) st.cutting=true; else if (st.type==='pot'&&canCook(h)) st.cooking=true;
+  st.surface = checkAndTransform(st.surface); // 放置也是状态变化点
+  SFX.put();
+}
+/* 配菜台：组合（放置/合并/拾取；合并合法子集判定，完成即切成品ID） */
+function handleCounter(st){
+  const p=G.player, h=p.held;
+  if (!h){ if(st.surface){ p.held=checkAndTransform(st.surface, st.cx, st.cy-20); st.surface=null; SFX.pick(); } return; }
+  if (!st.surface){
+    st.surface = checkAndTransform(h, p.x, p.y-24); // 放置：命中完整配方（如煮熟番茄→番茄汤）即成品
+    p.held=null; SFX.put(); return;
+  }
+  const merged = toParts(h).concat(toParts(st.surface));
+  if (isLegalSubset(merged)){ p.held=makeGroup(merged); st.surface=null; SFX.pick(); } // 合并 → 统一判定
+  else { addFloatAt(p.x,p.y-24,'还不能组合','#ffb3ba'); SFX.error(); }
+}
+
+/* ============================================================
+ * 10. 教程模式
+ * ============================================================ */
+const TUT_STEPS=[
+  { title:'移动拾取', target:'crate_tomato', hint:'用 <span class="k">WASD</span>/<span class="k">方向键</span> 移动到货架，按 <span class="k">E</span> 拿取一个番茄', check:()=> isIngredient(G.player.held)&&G.player.held.ing==='tomato'&&G.player.held.state==='raw' },
+  { title:'切菜', target:'board1', hint:'走到砧板，按 <span class="k">E</span> 放下番茄，切好后（约1秒）再按 <span class="k">E</span> 拿起', check:()=> isIngredient(G.player.held)&&G.player.held.ing==='tomato'&&G.player.held.state==='cut' },
+  { title:'煮熟', target:'pot1', hint:'把切好的番茄放入锅中煮，熟后（变深色冒热气）按 <span class="k">E</span> 取出', check:()=> isIngredient(G.player.held)&&G.player.held.ing==='tomato'&&G.player.held.state==='cooked' },
+  { title:'组合成菜', target:'counter1', hint:'把煮熟的番茄放到配菜台（按 <span class="k">E</span>），自动组合成「番茄汤」，再按 <span class="k">E</span> 拿起', check:()=> G.player.held&&G.player.held.type==='item'&&RECIPES[G.player.held.id] },
+  { title:'灌装饮料', target:'juice', hint:'先把番茄汤放到配菜台，再到橙汁机按 <span class="k">E</span> 灌装约 2 秒（中途离开作废）', check:()=> G.player.held&&G.player.held.type==='drink'&&G.player.held.drink==='orange' },
+  { title:'交付', target:'serving', hint:'到前台按 <span class="k">E</span>：先拿番茄汤交付菜品，再拿饮料交付饮料（两步）', check:()=> { const c=tutCustomer(); return c&&(c.state==='react'||c.state==='leave'||c.state==='gone'); } },
+  { title:'完成！', target:null, hint:'你已经掌握基础玩法！', check:()=> true },
+];
+function tutCustomer(){ return G.customers.find(c=>c.scripted); }
+function startTutorial(){
+  G.mode='tutorial'; G.difficulty=DIFFICULTIES.normal;
+  resetGame();
+  G.tutorial={ step:0 };
+  const c=makeCustomer(0, { mode:'combo', recipe:RECIPES.soup, drink:'orange' });
+  c.infinitePatience=true; G.customers.push(c); G.slots[0].occupied=true;
+  G.running=true; G.paused=false;
+  showScreen(null);
+  showTutorialUI();
+}
+function advanceTutorial(){ G.tutorial.step++; SFX.step(); showTutorialUI();
+  if (G.tutorial.step>=TUT_STEPS.length){ finishTutorial(); } }
+function finishTutorial(){
+  markTutorialSeen();
+  G.running=false; G.tutorial=null;
+  document.getElementById('tutorialBubble').style.display='none';
+  document.getElementById('btnTutorialSkip').style.display='none';
+  document.getElementById('btnBook').style.display='block';
+  $('tutDoneText').innerHTML='已完成：移动拾取 → 切菜 → 煮熟 → 组合成菜 → 灌装 → 交付（两步）。<br>三种难度：轻松/标准/地狱；两种模式：限时赛(评级)/无尽(存活)。<br>突发事件仅地狱出现，按 <span style="color:#f5c542">B</span> 随时查看配料表。';
+  showScreen('scrTutorialDone');
+}
+function endTutorial(){
+  G.tutorial=null; G.running=false;
+  document.getElementById('tutorialBubble').style.display='none';
+  document.getElementById('btnTutorialSkip').style.display='none';
+  document.getElementById('btnBook').style.display='block';
+  showScreen('scrDiff');
+}
+function showTutorialUI(){
+  if (!G.tutorial) return;
+  const s=TUT_STEPS[G.tutorial.step];
+  document.getElementById('tutorialBubble').style.display='block';
+  document.getElementById('btnTutorialSkip').style.display='block';
+  document.getElementById('btnBook').style.display='none';
+  document.getElementById('tbStep').textContent='步骤 '+(G.tutorial.step+1)+'/'+TUT_STEPS.length+' · '+s.title;
+  let hint=s.hint;
+  if (G.tutorial.step===5){ const c=tutCustomer(); if(c&&c.foodDone&&!c.drinkDone&&c.state!=='react') hint='菜品已交付！再按 <span class="k">E</span> 交付饮料'; }
+  document.getElementById('tbHint').innerHTML=hint;
+}
+
+/* ============================================================
+ * 11. 主循环
+ * ============================================================ */
+function nearestStation(){
+  const p=G.player; let best=null,bd=1e9;
+  for (const st of G.stations){
+    const dx=clamp(p.x,st.x,st.x+st.w)-p.x, dy=clamp(p.y,st.y,st.y+st.h)-p.y;
+    const d=Math.hypot(dx,dy);
+    if (d<p.r+18&&d<bd){ bd=d; best=st; }
+  }
+  return best;
+}
+function movePlayer(dt){
+  const p=G.player;
+  const SPEED=CONFIG.playerSpeed*TILE, ACCEL=CONFIG.playerAccel*TILE; // 格/秒 → 像素/秒
+  let dx=0,dy=0;
+  if (keys['ArrowLeft']||keys['KeyA']) dx-=1;
+  if (keys['ArrowRight']||keys['KeyD']) dx+=1;
+  if (keys['ArrowUp']||keys['KeyW']) dy-=1;
+  if (keys['ArrowDown']||keys['KeyS']) dy+=1;
+  if (touch.active){ dx+=touch.dx; dy+=touch.dy; }
+  const m=Math.hypot(dx,dy);
+  let tx=0, ty=0;
+  if (m>0.01){ dx/=m; dy/=m; tx=dx*SPEED; ty=dy*SPEED; p.facing=dx>=0?1:-1; }
+  const ad=ACCEL*dt;                                 // 加速/减速缓冲：速度向目标逼近
+  p.vx=clamp(tx, p.vx-ad, p.vx+ad);
+  p.vy=clamp(ty, p.vy-ad, p.vy+ad);
+  p.x+=p.vx*dt; p.y+=p.vy*dt;
+  p.moving=Math.hypot(p.vx,p.vy)>6;
+  if (p.moving) p.walk+=dt*10;
+  p.x=clamp(p.x,p.r+12,W-p.r-12);
+  p.y=clamp(p.y,p.r+KITCHEN_TOP,H-p.r-8);
+  for (const st of G.stations){
+    if (st.type==='serving'){ if(p.y+p.r>st.y&&p.y-p.r<st.y+st.h&&p.x+p.r>st.x&&p.x-p.r<st.x+st.w) p.y=st.y-p.r; continue; }
+    resolveCircleRect(p,st);
+  }
+}
+function resolveCircleRect(p,r){
+  const cx=clamp(p.x,r.x,r.x+r.w), cy=clamp(p.y,r.y,r.y+r.h);
+  let dx=p.x-cx, dy=p.y-cy; const d=Math.hypot(dx,dy);
+  if (d<p.r){ if(d>0.0001){ dx/=d; dy/=d; p.x=cx+dx*p.r; p.y=cy+dy*p.r; }
+    else { const l=p.x-r.x,rr=r.x+r.w-p.x,t=p.y-r.y,b=r.y+r.h-p.y; const mm=Math.min(l,rr,t,b);
+      if(mm===l) p.x=r.x-p.r; else if(mm===rr) p.x=r.x+r.w+p.r; else if(mm===t) p.y=r.y-p.r; else p.y=r.y+r.h+p.r; } }
+}
+function updateStations(dt){
+  const burn=G.difficulty.burn;
+  for (const st of G.stations){
+    st.fxTimer=(st.fxTimer||0)+dt;
+    if (st.type==='board'&&st.cutting){ st.progress+=dt/CUT_TIME;
+      if (st.progress>=1){ st.cutting=false; st.progress=0; if(st.surface&&isIngredient(st.surface)){ st.surface.state='cut'; SFX.chop(); spawnSlash(st.cx,st.cy); st.surface=checkAndTransform(st.surface, st.cx, st.cy-20); } }
+      else if (Math.floor(st.progress*3)>Math.floor((st.progress-dt/CUT_TIME)*3)) spawnSlash(st.cx,st.cy); }
+    if (st.type==='pot'&&st.fire<=0&&st.cooking){ if(G.blackout>0) continue; st.progress+=dt/COOK_TIME;
+      if (st.progress>=1){ st.cooking=false; st.progress=0;
+        if(st.surface&&isIngredient(st.surface)){ st.surface.state='cooked'; SFX.cookdone(); spawnSteam(st.cx,st.cy-10);
+          st.surface=checkAndTransform(st.surface, st.cx, st.cy-20); } // 煮熟完成 → 统一判定（番茄→番茄汤 出锅即成品）
+        st.burning = isIngredient(st.surface); } } // 已成成品则不再烧糊；仅食材态可烧糊
+    if (st.type==='pot'&&st.fire<=0&&st.burning&&burn&&st.surface&&isIngredient(st.surface)&&st.surface.state==='cooked'){ if(G.blackout>0) continue;
+      st.progress+=dt/(BASE_BURN/G.difficulty.burnSpeed);
+      if (st.progress>=1){ st.surface.state='burnt'; st.burning=false; st.progress=0; spawnSmoke(st.cx,st.cy-10,'#5a3a20',1); } }
+    if (st.type==='pot'&&st.fire>0){ if(st.surface&&isIngredient(st.surface)&&st.surface.state!=='burnt'){ st.surface.state='burnt'; st.burning=false; SFX.fire(); }
+      spawnSmoke(st.cx,st.cy-10,'#e05a00',1.2); G.fireGlow=Math.min(1,G.fireGlow+dt*2); }
+    // 煮熟持续冒热气 / 成品冒热气 / 烧糊冒烟
+    if (st.type==='pot'&&st.surface&&st.fxTimer>0.45){
+      st.fxTimer=0;
+      if (!isIngredient(st.surface) || st.surface.state==='cooked') spawnSteam(st.cx,st.cy-10);
+      else if (st.surface.state==='burnt') spawnSmoke(st.cx,st.cy-10,'#5a3a20',1);
+    }
+  }
+}
+function updateRats(dt){
+  const p=G.player;
+  for(let i=G.rats.length-1;i>=0;i--){ const r=G.rats[i];
+    if (dist(p,r)<p.r+12) scareRat(r);
+    if (r.state==='in'){ const dx=r.tx-r.x,dy=r.ty-r.y,d=Math.hypot(dx,dy);
+      if (d<6){ if(r.st&&r.st.surface){ r.st.surface=null; r.st.progress=0; r.st.cutting=r.st.cooking=r.st.burning=false; addFloatAt(r.x,r.y-12,'食材被叼走！','#ff6b6b'); SFX.error(); } r.state='out'; }
+      else { r.x+=dx/d*52*dt; r.y+=dy/d*52*dt; } }
+    else { r.fleeT+=dt; r.x+=(r.x<W/2?1:-1)*68*dt; r.y=clamp(r.y,KITCHEN_TOP+6,COUNTER_Y-6); if(r.x<-24||r.x>W+24||r.fleeT>5) G.rats.splice(i,1); } }
+}
+function updateEvents(dt){
+  if (G.mode==='tutorial') return;
+  G.nextEventIn-=dt;
+  if (G.nextEventIn<=3&&G.nextEventIn>0&&!G.bannerEvent) G.bannerEvent=pickEvent();
+  if (G.nextEventIn<=0){ const ev=G.bannerEvent||pickEvent(); G.bannerEvent=null; if(ev) triggerEvent(ev); G.nextEventIn=G.difficulty.eventInterval; }
+}
+function updateFx(dt){
+  for(let i=G.particles.length-1;i>=0;i--){ const q=G.particles[i]; q.t+=dt; q.x+=q.vx*dt; q.y+=q.vy*dt; if(q.t>=q.life) G.particles.splice(i,1); }
+  for(let i=G.floats.length-1;i>=0;i--){ const f=G.floats[i]; f.t+=dt; f.y+=f.vy*dt; f.vy*=0.96; if(f.t>=f.life) G.floats.splice(i,1); }
+}
+function addFloatAt(x,y,text,color){ G.floats.push({x,y,vy:-14,text,color,life:1.1,t:0}); }
+function spawnSlash(x,y){ for(let i=0;i<4;i++) G.particles.push({x:x+rand(-6,6),y:y+rand(-6,6),vx:rand(-30,30),vy:rand(-50,-14),life:.3,t:0,c:'#eef6ff',r:1}); }
+function spawnSteam(x,y){ for(let i=0;i<4;i++) G.particles.push({x:x+rand(-4,4),y:y,vx:rand(-4,4),vy:rand(-26,-14),life:.7,t:0,c:'#ddd',r:1}); }
+function spawnSmoke(x,y,c,rate){ for(let i=0;i<(rate||1)*3;i++) G.particles.push({x:x+rand(-4,4),y:y,vx:rand(-4,4),vy:rand(-30,-18),life:.9,t:0,c:c,r:1}); }
+function spawnBurst(x,y,c,n){ for(let i=0;i<n;i++) G.particles.push({x,y,vx:rand(-36,36),vy:rand(-60,-12),life:.4,t:0,c,r:1}); }
+function spawnHeart(x,y){ for(let i=0;i<3;i++) G.particles.push({x:x+rand(-5,5),y:y,vx:rand(-8,8),vy:rand(-32,-18),life:.8,t:0,c:'#ff6b6b',r:1,heart:true}); }
+
+let lastTs=0;
+function loop(ts){
+  requestAnimationFrame(loop);
+  if(!lastTs) lastTs=ts;
+  let dt=clamp((ts-lastTs)/1000,0,0.05); lastTs=ts;
+  if (G.running&&!G.paused&&!G.glossaryOpen){
+    G.elapsed+=dt;
+    if (G.mode==='time'){ G.timeLeft-=dt; if(G.timeLeft<=0){ G.timeLeft=0; endGame(); } }
+    movePlayer(dt); updateStations(dt); updateCustomers(dt); updateEvents(dt); updateFill(dt); updateRats(dt); updateFx(dt);
+    if (G.blackout>0) G.blackout-=dt;
+    G.fireGlow=Math.max(0,G.fireGlow-dt*0.6); G.shake=Math.max(0,G.shake-dt*2.2);
+    if (G.tutorial){ const s=TUT_STEPS[G.tutorial.step]; if(s.check()) advanceTutorial(); }
+  }
+  render();
+}
+
+/* ============================================================
+ * 12. 渲染
+ * ============================================================ */
+const canvas=document.getElementById('game');
+const ctx=canvas.getContext('2d');
+ctx.imageSmoothingEnabled=false;
+
+const _tiles={};
+function makeTiles(){
+  function tile(name,fn){ const cv=document.createElement('canvas'); cv.width=TILE; cv.height=TILE; const c=cv.getContext('2d'); fn(c); _tiles[name]=cv; }
+  tile('floor',c=>{ c.fillStyle='#3a2a1a'; c.fillRect(0,0,16,16); c.fillStyle='#4a3822'; c.fillRect(0,0,16,1); c.fillRect(0,0,1,16); c.fillStyle='#332517'; c.fillRect(3,5,2,2); c.fillRect(9,10,2,2); c.fillRect(11,4,2,2); });
+  tile('floor2',c=>{ c.fillStyle='#40301f'; c.fillRect(0,0,16,16); c.fillStyle='#4a3822'; c.fillRect(0,15,16,1); c.fillRect(15,0,1,16); c.fillStyle='#332517'; c.fillRect(5,7,2,2); c.fillRect(10,12,2,2); });
+  tile('wall',c=>{ c.fillStyle='#5a3a20'; c.fillRect(0,0,16,16); c.fillStyle='#6b4a28'; c.fillRect(0,0,16,2); c.fillRect(0,0,2,16); c.fillStyle='#4a2c14'; c.fillRect(0,8,16,2); c.fillRect(8,0,2,8); });
+  tile('lobby',c=>{ c.fillStyle='#2a3a4a'; c.fillRect(0,0,16,16); c.fillStyle='#33465a'; c.fillRect(0,0,16,1); c.fillRect(0,0,1,16); c.fillStyle='#1f2b36'; c.fillRect(4,4,3,3); c.fillRect(11,10,3,3); });
+  tile('counter',c=>{ c.fillStyle='#7a4a1e'; c.fillRect(0,0,16,16); c.fillStyle='#c98a4a'; c.fillRect(0,0,16,5); c.fillStyle='#5a3a1e'; c.fillRect(0,7,16,2); c.fillStyle='#9a6230'; c.fillRect(0,9,16,2); });
+}
+function drawTiles(){
+  for (let ty=0; ty<H; ty+=TILE) for (let tx=0; tx<W; tx+=TILE){
+    let name;
+    if (ty<KITCHEN_TOP) name='wall';
+    else if (ty<COUNTER_Y) name=((tx/TILE+ty/TILE)%2)?'floor':'floor2';
+    else if (ty<COUNTER_Y+COUNTER_H) name='counter';
+    else name='lobby';
+    ctx.drawImage(_tiles[name],tx,ty);
+  }
+  fillRect('#5a3a20',0,0,8,H); fillRect('#5a3a20',W-8,0,8,H);
+  fillRect('#6b4a28',0,0,2,H); fillRect('#6b4a28',W-2,0,2,H);
+  fillRect('#1a1220',DOOR_X-10,H-4,20,4); fillRect('#f5c542',DOOR_X-10,H-2,20,2);
+}
+function drawStation(st){
+  const x=st.x,y=st.y,w=st.w,h=st.h;
+  const hl=nearestStation()===st&&G.running&&!G.paused;
+  const tutT = (G.tutorial&&TUT_STEPS[G.tutorial.step]&&TUT_STEPS[G.tutorial.step].target===st.id);
+  if (st.type==='serving'){ fillRect('#c98a4a',x,y,w,2); if(hl){ ctx.strokeStyle='#ffe14d'; ctx.lineWidth=1; ctx.strokeRect(x,y-2,w,h+4); } return; }
+  if (st.type==='pot'){ fillRect('#2a2a33',x+3,y+5,w-6,h-5); fillRect('#111',x+5,y+3,w-10,4); fillRect('#e8452c',x+5,y+3,w-10,1); }
+  else { fillRect('#7a4a1e',x,y+4,w,h-4); fillRect('#9a6230',x+2,y+4,w-4,4); }
+  ctx.strokeStyle='#20181a'; ctx.lineWidth=1; ctx.strokeRect(x,y,w,h);
+  let sp=null;
+  switch(st.type){
+    case 'crate': sp=ING[st.ing].sp.raw; break;
+    case 'board': sp='knife'; break;
+    case 'pot': sp='dish_soup'; break;
+    case 'drink': sp=DRINKS[st.drink].sprite; break;
+    case 'exting': sp='exting'; break;
+  }
+  if (sp) blit(sp,x+2,y+2,w-4,w-4);
+  if (st.type==='drink') fillRect('#fff',x+7,y+2,w-14,1);
+  // 表面物品（含烹饪/切菜渐变过渡）
+  if (st.surface){
+    if (st.type==='pot'&&st.cooking&&isIngredient(st.surface)) drawCrossfade(st.surface,st.cx,st.y+1,24,st.progress,'raw','cooked');
+    else if (st.type==='pot'&&st.burning&&isIngredient(st.surface)) drawCrossfade(st.surface,st.cx,st.y+1,24,st.progress,'cooked','burnt');
+    else if (st.type==='board'&&st.cutting&&isIngredient(st.surface)) drawCrossfade(st.surface,st.cx,st.y+1,24,st.progress,'raw','cut');
+    else { drawItem(st.surface, st.cx, st.y+1, 24); }
+  }
+  const pro=st.cutting||st.cooking||st.burning;
+  if (pro&&st.progress>0){ fillRect('#000',x,y-4,w,3); fillRect(st.burning?'#e8452c':'#4caf50',x+1,y-3,Math.round((w-2)*clamp(st.progress,0,1)),1); }
+  if (G.fill&&G.fill.st===st){ fillRect('#000',x,y-4,w,3); fillRect('#3a7bd5',x+1,y-3,Math.round((w-2)*clamp(G.fill.t/DRINK_FILL,0,1)),1); }
+  if (st.fire>0) blit('fire',x+4,y-20,20,20);
+  if (st.type==='pot'&&G.blackout>0){ ctx.fillStyle='rgba(120,120,120,.55)'; ctx.fillRect(x,y,w,h); }
+  if (hl||tutT){ const pulse=0.5+0.5*Math.sin(G.elapsed*6); ctx.strokeStyle = tutT?'#4caf50':'#ffe14d'; ctx.lineWidth=1+(tutT?1:0);
+    ctx.globalAlpha=0.5+pulse*0.5; ctx.strokeRect(x-3,y-3,w+6,h+6); ctx.globalAlpha=1; }
+  if (tutT){ const ay=y-12-Math.abs(Math.sin(G.elapsed*4))*4; ctx.fillStyle='#4caf50'; ctx.fillRect(st.cx-3,ay,6,5); ctx.fillRect(st.cx-5,ay+5,10,3); }
+}
+function drawCrossfade(it,cx,cy,s,prog,from,to){
+  const g=ING[it.ing];
+  blit(g.sp[from],cx-s/2,cy-s/2,s,s);
+  ctx.globalAlpha=clamp(prog,0,1);
+  blit(g.sp[to],cx-s/2,cy-s/2,s,s);
+  ctx.globalAlpha=1;
+}
+function drawItem(it,cx,cy,s){
+  if(!it) return;
+  if(it.type==='item' && !RECIPES[it.id]){
+    blit(itemSprite(it), cx-s/2, cy-s/2, s, s);
+    if(it.count>1) drawCountBadge(cx, cy, s, it.count); // 中间态：首个食材图标 + ×N 角标
+  } else {
+    const sp=itemSprite(it); if(sp) blit(sp, cx-s/2, cy-s/2, s, s);
+  }
+}
+function drawCountBadge(cx, cy, s, n){
+  const bw=Math.max(11, Math.round(s*0.5)), bh=Math.max(8, Math.round(s*0.42));
+  const bx=cx+s/2-bw+1, by=cy-s/2-1;
+  fillRect('#17121c', bx, by, bw, bh);
+  ctx.strokeStyle='#f5c542'; ctx.lineWidth=1; ctx.strokeRect(bx, by, bw, bh);
+  ctx.font=Math.max(7, Math.round(s*0.32))+'px "Press Start 2P",monospace'; ctx.textBaseline='middle'; ctx.textAlign='center';
+  ctx.fillStyle='#f5c542'; ctx.fillText('x'+n, bx+bw/2, by+bh/2+1);
+}
+function drawChef(){
+  const p=G.player;
+  const bob=p.moving?Math.round(Math.sin(p.walk)*2):0;
+  const x=Math.round(p.x),y=Math.round(p.y)+bob, f=p.facing;
+  fillRect('rgba(0,0,0,.3)',p.x-7,p.y+10,14,3);
+  const ls=p.moving?(Math.floor(p.walk)%2?1:0):0;
+  fillRect('#20181a',x-7,y+4,15,6);
+  fillRect('#2a2a35',x-6,y+5,4,4-(ls?1:0)); fillRect('#2a2a35',x+2,y+5,4,4+(ls?1:0));
+  fillRect('#20181a',x-8,y-10,16,15);
+  fillRect('#f7f0dc',x-7,y-9,14,13);
+  fillRect('#4c7ef2',x-6,y-2,12,6);
+  fillRect('#e8452c',x-2,y-8,4,3);
+  fillRect('#20181a',x-7,y-18,14,11);
+  fillRect('#f6c89f',x-6,y-17,12,9);
+  fillRect('#20181a',x-8,y-25,16,7);
+  fillRect('#fff',x-7,y-24,14,4); fillRect('#fff',x-8,y-22,16,3);
+  fillRect('#3a2414',x+(f>0?1:-5),y-15,2,2); fillRect('#3a2414',x+(f>0?4:-2),y-15,2,2);
+  const hx=x+f*9, hy=y-6;
+  if(p.held) drawItem(p.held,hx+f*4,hy-7,16);
+  else { fillRect('#20181a',hx-4,hy-3,9,8); fillRect('#f6c89f',hx-3,hy-2,7,6); }
+}
+function drawCustomer(c){
+  if(c.state==='gone') return;
+  let x=Math.round(c.x), y=Math.round(c.y);
+  if(c.state==='react'){ if(c.reactType==='happy') y-=Math.round(Math.sin(c.reactT*10)*3); else y+=Math.round(Math.sin(c.reactT*26)); }
+  const b=c.look; const h=b.body==='tall'?16:(b.body==='short'?12:15); const wd=b.body==='wide'?18:15;
+  fillRect('rgba(0,0,0,.3)',x-8,c.y+11,16,3);
+  ctx.strokeStyle='#20181a'; ctx.lineWidth=1;
+  const walk=(c.state==='enter'||c.state==='leave')?(Math.floor(c.walkPhase)%2):0;
+  fillRect('#2a2a35',x-5,y+4,3,7-(walk?1:0)); fillRect('#2a2a35',x+2,y+4,3,7+(walk?1:0));
+  fillRect(b.shirt,x-wd/2,y+4-h+5,wd,h-5); ctx.strokeRect(x-wd/2,y+4-h+5,wd,h-5);
+  fillRect(b.skin,x-wd/2-2,y+4-h+7,2,5); fillRect(b.skin,x+wd/2,y+4-h+7,2,5);
+  fillRect(b.skin,x-6,y-h-6,12,9); ctx.strokeRect(x-6,y-h-6,12,9);
+  const ex1=x-4,ex2=x+3,ey=y-h-3;
+  if(c.mood===0){ fillRect('#3a2414',ex1,ey,2,2); fillRect('#3a2414',ex2,ey,2,2); fillRect('#3a2414',x-2,ey+4,4,2); }
+  else if(c.mood===1){ fillRect('#3a2414',ex1,ey,2,2); fillRect('#3a2414',ex2,ey,2,2); fillRect('#3a2414',x-2,ey+4,4,2); fillRect('#3a2414',x-4,ey+1,8,2); }
+  else { fillRect('#3a2414',ex1,ey,2,2); fillRect('#3a2414',ex2,ey,2,2); fillRect('#3a2414',x-2,ey+5,4,2); fillRect('#e8452c',x-4,ey-2,2,2); fillRect('#e8452c',x+3,ey-2,2,2); }
+  if(b.hairStyle==='buzz') fillRect(b.hair,x-6,y-h-6,12,3);
+  else if(b.hairStyle==='side'){ fillRect(b.hair,x-6,y-h-6,12,2); fillRect(b.hair,x-7,y-h-6,3,7); fillRect(b.hair,x+4,y-h-6,3,7); }
+  else if(b.hairStyle==='long'){ fillRect(b.hair,x-6,y-h-6,12,2); fillRect(b.hair,x-7,y-h-6,2,9); fillRect(b.hair,x+5,y-h-6,2,9); }
+  else if(b.hairStyle==='spiky'){ fillRect(b.hair,x-6,y-h-6,12,2); fillRect(b.hair,x-5,y-h-9,2,3); fillRect(b.hair,x+2,y-h-10,2,4); }
+  else if(b.hairStyle==='bun'){ fillRect(b.hair,x-6,y-h-6,12,2); fillRect(b.hair,x+2,y-h-11,3,5); }
+  if(b.hat==='chef'){ fillRect('#fff',x-4,y-h-10,9,5); fillRect('#fff',x-6,y-h-9,13,2); ctx.strokeRect(x-6,y-h-11,13,6); }
+  else if(b.hat==='cap'){ fillRect('#e8452c',x-6,y-h-9,12,3); fillRect('#e8452c',x-1,y-h-12,5,3); }
+  else if(b.hat==='beanie'){ fillRect('#4c7ef2',x-6,y-h-9,12,3); fillRect('#4c7ef2',x-4,y-h-12,9,3); }
+  else if(b.hat==='crown'){ fillRect('#f5c542',x-4,y-h-11,9,3); fillRect('#f5c542',x-6,y-h-10,2,2); fillRect('#f5c542',x+5,y-h-10,2,2); }
+  else if(b.hat==='band'){ fillRect('#f58a1f',x-6,y-h-8,12,2); }
+  if(c.state==='queue'||c.state==='react') drawBubble(c);
+}
+function drawBubble(c){
+  const o=c.order; if(!o) return;
+  const wpx=o.mode==='combo'?26:20, hh=18;
+  const px=Math.round(c.x-wpx/2), py=Math.round(c.y-34-hh);
+  fillRect('#f7f0dc',px,py,wpx,hh); ctx.strokeStyle='#20181a'; ctx.lineWidth=1; ctx.strokeRect(px,py,wpx,hh);
+  fillRect('#f7f0dc',c.x-2,py+hh,4,3); ctx.strokeRect(c.x-2,py+hh,4,3);
+  if(o.recipe){ ctx.globalAlpha=o.foodDone?0.3:1; blit(o.recipe.sprite,px+2,py+2,12,12); ctx.globalAlpha=1; }  // 已交付项变暗
+  if(o.drink){ ctx.globalAlpha=o.drinkDone?0.3:1; blit(DRINKS[o.drink].sprite,px+(o.recipe?14:4),py+2,12,12); ctx.globalAlpha=1; }
+  if(o.mode!=='drink'){ ctx.fillStyle=o.foodDone?'#4caf50':'#999'; ctx.fillRect(px+3,py+15,5,1); ctx.fillRect(px+4,py+15,1,1); }
+  if(o.drink){ const d2=px+(o.recipe?14:4); ctx.fillStyle=o.drinkDone?'#4caf50':'#999'; ctx.fillRect(d2+3,py+15,5,1); ctx.fillRect(d2+4,py+15,1,1); }
+  const f=clamp(o.patience/o.total,0,1); const col=f>0.5?'#4caf50':(f>0.25?'#f5a623':'#e8452c');
+  fillRect('#000',px+2,py+16,wpx-4,1); fillRect(col,px+2,py+16,Math.round((wpx-4)*f),1);
+}
+function drawRat(r){
+  const flip=r.state==='in'?(r.tx>r.x?1:-1):(r.x<W/2?1:-1);
+  ctx.save(); ctx.translate(Math.round(r.x),Math.round(r.y)); ctx.scale(flip,1);
+  ctx.strokeStyle='#20181a'; ctx.lineWidth=1;
+  fillRect('#9e9e9e',-9,-5,18,9); ctx.strokeRect(-9,-5,18,9);
+  fillRect('#9e9e9e',3,-10,11,8); ctx.strokeRect(3,-10,11,8);
+  fillRect('#333',11,-9,2,2); fillRect('#ff8a80',-13,-3,7,2);
+  ctx.restore();
+}
+function drawWorld(){
+  drawTiles();
+  for(const st of G.stations) drawStation(st);
+  for(const g of G.ground){ const hl=dist(G.player,g)<20; if(hl){ ctx.strokeStyle='#ffe14d'; ctx.lineWidth=1; ctx.strokeRect(g.x-14,g.y-14,28,28); } drawItem(g.item,g.x,g.y,24); }
+  for(const r of G.rats) drawRat(r);
+  for(const c of G.customers) drawCustomer(c);
+  drawChef();
+  for(const q of G.particles){ ctx.globalAlpha=1-q.t/q.life; if(q.heart) blit('heart',q.x-6,q.y-6,12,12); else fillRect(q.c,q.x,q.y,3,3); }
+  ctx.globalAlpha=1;
+}
+function pxText(text,x,y,color,size){ ctx.font=(size||8)+'px "Press Start 2P",monospace'; ctx.textBaseline='top'; ctx.textAlign='left'; ctx.fillStyle='#000'; ctx.fillText(text,x+1,y+1); ctx.fillStyle=color||'#fff'; ctx.fillText(text,x,y); }
+function fmtTime(s){ const m=Math.floor(s/60),ss=Math.floor(s%60); return m+':'+(ss<10?'0':'')+ss; }
+function drawHUD(){
+  fillRect('rgba(0,0,0,.6)',0,0,W,KITCHEN_TOP); fillRect('#7a4a1e',0,KITCHEN_TOP-1,W,1);
+  // 左：得分+连击
+  pxText('分',8,4,'#c9b79a',8); pxText(String(G.score),8,14,'#f5c542',12);
+  pxText('连x'+G.combo,92,18,G.combo>=1?'#ff8a6a':'#666',8);
+  // 中：计时
+  const tstr=G.mode==='tutorial'?'教程':(G.mode==='time'?String(Math.ceil(G.timeLeft)):fmtTime(G.elapsed));
+  ctx.textAlign='center'; ctx.font='16px "Press Start 2P",monospace'; ctx.textBaseline='top';
+  ctx.fillStyle='#000'; ctx.fillText(tstr,W/2+1,6+1); ctx.fillStyle='#fff'; ctx.fillText(tstr,W/2,6);
+  ctx.textAlign='left';
+  // 右：订单队列
+  let qx=430;
+  for(const c of G.customers){ if(!(c.state==='queue'||c.state==='react')||!c.order) continue; const o=c.order;
+    if(o.recipe) blit(o.recipe.sprite,qx,4,14,14);
+    if(o.drink) blit(DRINKS[o.drink].sprite,qx+(o.recipe?15:0),4,14,14);
+    fillRect('#000',qx,20,20,2); fillRect('#f5c542',qx,20,Math.round(20*clamp(o.patience/o.total,0,1)),2);
+    qx+=26; }
+  if (G.mode==='endless'){ for(let i=0;i<3;i++) blit('heart',W-70+i*16,16,10,10); for(let i=G.hearts;i<3;i++) fillRect('#000',W-70+i*16,16,10,10); }
+}
+function drawFloats(){ for(const f of G.floats){ ctx.globalAlpha=1-f.t/f.life; pxText(f.text,Math.round(f.x-f.text.length*5),Math.round(f.y),f.color,10); } ctx.globalAlpha=1; }
+function drawHint(){
+  if(!G.running||G.paused) return;
+  const p=G.player; let text=null;
+  for(const g of G.ground) if(dist(p,g)<20){ text='拾取'; break; }
+  if(!text) for(const r of G.rats) if(dist(p,r)<20){ text='驱赶老鼠'; break; }
+  if(!text){ const st=nearestStation(); if(st) text=stationHint(st); }
+  if(text){ const wpx=Math.max(60,text.length*10+24); fillRect('rgba(0,0,0,.6)',W/2-wpx/2,H-34,wpx,16);
+    ctx.strokeStyle='#ffe14d'; ctx.lineWidth=1; ctx.strokeRect(W/2-wpx/2,H-34,wpx,16);
+    pxText('E '+text,W/2-text.length*5-6,H-30,'#ffe14d',10); }
+}
+function stationHint(st){
+  const p=G.player,h=p.held;
+  switch(st.type){
+    case 'crate': return h?'手上有东西':'拿'+ING[st.ing].name;
+    case 'exting': return !h?'拿灭火器':(h.type==='extinguisher'?'放回':'手上有东西');
+    case 'drink': return h?'手上有东西':'灌'+DRINKS[st.drink].name;
+    case 'serving': return h?((h.type==='item'&&RECIPES[h.id])?'交付菜品':(h.type==='drink'?'交付饮料':'手上有东西')):'前台';
+    case 'board': case 'pot':
+      if(st.fire>0) return h&&h.type==='extinguisher'?'连按灭火':'要灭火器';
+      if(!h) return st.surface?'拿起':'放食材';
+      if(!st.surface){ if(st.type==='board'&&canCut(h)) return '切菜'; if(st.type==='pot'&&canCook(h)) return '煮'; return '只能放食材'; }
+      return '已占用';
+    case 'counter':
+      if(!h) return st.surface?'拿起':'放下食材';
+      if(!st.surface) return '放下';
+      return '组合';
+  }
+  return '';
+}
+function bannerFlash(icon,text,neg){ G.banner={icon,text,neg,t:1.6}; }
+function drawBanner(){
+  if(!G.banner) return;
+  const b=G.banner; b.t-=1/60; if(b.t<=0){ G.banner=null; return; }
+  if (G.nextEventIn<=3&&G.nextEventIn>0&&G.bannerEvent){ b.icon=EVENTS[G.bannerEvent].icon; b.text=Math.ceil(G.nextEventIn)+'s '+EVENTS[G.bannerEvent].name; b.neg=EVENTS[G.bannerEvent].neg; }
+  const wpx=180,hpx=20;
+  fillRect('rgba(0,0,0,.6)',W/2-wpx/2,36,wpx,hpx);
+  ctx.strokeStyle=b.neg?'#e8452c':'#4caf50'; ctx.lineWidth=1; ctx.strokeRect(W/2-wpx/2,36,wpx,hpx);
+  if(b.icon) blit(b.icon,W/2-wpx/2+4,40,12,12);
+  pxText(b.text,W/2-wpx/2+20,42,'#fff',8);
+}
+function render(){
+  ctx.imageSmoothingEnabled=false; ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,W,H); ctx.fillStyle='#000'; ctx.fillRect(0,0,W,H);
+  const shx=G.shake?Math.round(rand(-1,1)):0, shy=G.shake?Math.round(rand(-1,1)):0;
+  ctx.save(); ctx.translate(shx,shy); drawWorld(); ctx.restore();
+  if(G.fireGlow>0.01){ ctx.fillStyle='rgba(229,57,53,'+(0.25*G.fireGlow)+')'; ctx.fillRect(0,0,12,H); ctx.fillRect(W-12,0,12,H); ctx.fillRect(0,0,W,10); ctx.fillRect(0,H-10,W,10); }
+  drawHUD(); drawFloats(); drawHint(); drawBanner();
+}
+
+/* ============================================================
+ * 13. 缩放（整数倍 + 竖屏非整数，实时重算，信封边纹理）
+ * ============================================================ */
+function resize(){
+  const vw=innerWidth, vh=innerHeight;
+  const portrait = vh>vw;
+  let s = Math.min(vw/W, vh/H);
+  if (!portrait && s>1) s=Math.floor(s);        // 桌面取最大整数倍
+  s = Math.max(s, Math.min(vw/W, vh/H));        // 保证不小于 contain（竖屏非整数放大）
+  canvas.style.width = Math.round(W*s)+'px';
+  canvas.style.height = Math.round(H*s)+'px';
+}
+addEventListener('resize',resize);
+addEventListener('orientationchange',resize);
+if (window.matchMedia) window.matchMedia('(orientation: portrait)').addEventListener('change',resize);
+
+/* ============================================================
+ * 14. 配料表（图鉴）
+ * ============================================================ */
+function toggleGlossary(){
+  if (G.glossaryOpen) closeGlossary(); else openGlossary();
+}
+function openGlossary(){
+  G.glossaryOpen=true; G.paused=true;
+  buildGlossary();
+  $('scrGlossary').classList.remove('hidden');
+}
+function closeGlossary(){
+  G.glossaryOpen=false; if(G.running) G.paused=false;
+  $('scrGlossary').classList.add('hidden');
+}
+function buildGlossary(){
+  const box=$('glossaryPanel'); let html='<h2>配料表</h2>';
+  html+='<div class="g-section">菜品</div>';
+  for(const k in RECIPES){ const r=RECIPES[k];
+    const parts=r.parts.map(p=>{ const g=ING[p[0]]; const sp=p[1]==='cooked'?g.sp.cooked:(p[1]==='cut'?g.sp.cut:g.sp.raw);
+      return '<span class="g-part"><img src="'+spriteURL(sp)+'">'+g.name+STATE_NAMES[p[1]]+'</span>'; }).join('');
+    html+='<div class="g-recipe"><img src="'+spriteURL(r.sprite)+'"><div class="g-body">'+
+      '<div class="g-name">'+'★'.repeat(r.stars)+' '+r.name+' · '+r.points+' 分</div>'+
+      '<div class="g-info">需要：</div><div class="g-parts">'+parts+'</div>'+
+      '<div class="g-info">饮料：由订单随机附加（+50 分）</div></div></div>';
+  }
+  html+='<div class="g-section">饮料与规则</div>';
+  html+='<div class="g-recipe"><img src="'+spriteURL('drink_orange')+'"><div class="g-body"><div class="g-name">橙汁</div><div class="g-info">橙汁机灌装约 2 秒，中途离开作废</div></div></div>';
+  html+='<div class="g-recipe"><img src="'+spriteURL('drink_cola')+'"><div class="g-body"><div class="g-name">可乐</div><div class="g-info">可乐机灌装约 2 秒，中途离开作废</div></div></div>';
+  html+='<div class="g-rule ui-text">· 在配菜台按 E 组合食材成菜（合法子集才能合并）<br>· 烧糊的菜不可交付<br>· 错误交付 -30 分且食材报废<br>· 订单超时 -60 分<br>· 连击：每单 +10%，上限 +50%，超时/错交付清零<br>· 含饮料订单分两步：先菜后饮</div>';
+  box.innerHTML=html;
+}
+function spriteURL(name){ return sprite(name).toDataURL(); }
+
+/* ============================================================
+ * 15. 界面流程
+ * ============================================================ */
+const $=id=>document.getElementById(id);
+function showScreen(id){ for(const s of ['scrPrompt','scrDiff','scrMode','scrResult','scrSettings','scrGlossary','scrTutorialDone','scrPause']) $(s).classList.add('hidden'); if(id) $(id).classList.remove('hidden'); }
+function buildDiffCards(){
+  const box=$('diffCards'); box.innerHTML='';
+  for(const k in DIFFICULTIES){ const d=DIFFICULTIES[k];
+    const bt=loadBest(k,'time'), be=loadBest(k,'endless');
+    const card=document.createElement('div'); card.className='card';
+    card.innerHTML='<span class="ic">'+(k==='easy'?'☺':(k==='normal'?'☺':'☠'))+'</span><h3>'+d.name+'</h3><p>同时 '+d.maxOrders+' 单 · 耐心×'+d.patienceMult+' · '+(d.burn?'烧糊速度'+d.burnSpeed+'×':'不烧糊')+' · 事件'+d.eventInterval+'s</p><div class="rec">限时 '+(bt?bt.score:'—')+' · 无尽 '+(be?be.score:'—')+'</div><span class="stamp" style="--c:'+d.color+'">选择</span>';
+    card.onclick=()=>{ G.difficulty=DIFFICULTIES[k]; $('modeSub').textContent='难度：'+d.name; refreshModeCards(); showScreen('scrMode'); };
+    box.appendChild(card);
+  }
+}
+function refreshModeCards(){
+  if(!G.difficulty) return;
+  const dk=diffKey();
+  setModeCardRec(document.querySelector('#scrMode .card[data-mode="time"]'), loadBest(dk,'time'));
+  setModeCardRec(document.querySelector('#scrMode .card[data-mode="endless"]'), loadBest(dk,'endless'));
+}
+function setModeCardRec(card, rec){
+  if(!card) return;
+  let el=card.querySelector('.rec');
+  if(!el){ el=document.createElement('div'); el.className='rec'; card.appendChild(el); }
+  el.textContent = rec ? ('最高 '+rec.score+' 分 · '+rec.completed+' 单 · '+rec.date) : '最高分 —';
+}
+function resetGame(){
+  G.stations=buildStations();
+  G.customers=[]; G.slots=[]; for(let i=0;i<(G.difficulty?G.difficulty.maxOrders:4);i++) G.slots.push({occupied:false});
+  G.ground=[]; G.rats=[]; G.particles=[]; G.floats=[];
+  G.score=0; G.combo=0; G.completed=0; G.mistakes=0;
+  G.timeLeft=MODE_TIME; G.elapsed=0; G.hearts=3;
+  G.refreshTimer=1; G.nextEventIn=(G.difficulty?G.difficulty.eventInterval:20); G.bannerEvent=null;
+  G.blackout=0; G.shake=0; G.fireGlow=0; G.fill=null; G.recentModes=[]; G.banner=null;
+  G.player.x=520; G.player.y=88; G.player.held=null; G.player.facing=1;
+}
+function startGame(mode){
+  G.mode=mode; G.tutorial=null;
+  resetGame();
+  trySpawnCustomer(); trySpawnCustomer();
+  G.running=true; G.paused=false;
+  showScreen(null);
+}
+function endGame(){
+  G.running=false;
+  const dk=diffKey();
+  const prev=loadBest(dk, G.mode);
+  const isBest = !prev || G.score>prev.score;
+  if (isBest) saveBest(dk, G.mode, { score:G.score, completed:G.completed, date:todayStr() });
+  showScreen('scrResult');
+  $('resultTitle').textContent=G.mode==='time'?'时间到！':'游戏结束';
+  const stats=$('resultStats');
+  const hist = prev ? prev.score : '—';
+  if(G.mode==='time'){ const r=rating(G.score); $('resultRank').textContent=r; $('resultRank').style.color=rankColor(r);
+    stats.innerHTML='<span>得分</span><span class="sv">'+G.score+'</span><span>完成</span><span class="sv">'+G.completed+'</span><span>失误</span><span class="sv">'+G.mistakes+'</span><span>评级</span><span class="sv">'+r+'</span><span>历史最高</span><span class="sv">'+hist+'</span>'; }
+  else { $('resultRank').textContent='♾'; $('resultRank').style.color='#f5c542';
+    stats.innerHTML='<span>存活</span><span class="sv">'+fmtTime(G.elapsed)+'</span><span>完成</span><span class="sv">'+G.completed+'</span><span>总分</span><span class="sv">'+G.score+'</span><span>历史最高</span><span class="sv">'+hist+'</span>'; }
+  const rb=$('resultBest');
+  if (isBest){ rb.textContent='★ 新纪录！'; rb.style.display='block'; }
+  else { rb.textContent='历史最高 '+hist+' 分'; rb.style.display='block'; }
+  buildDiffCards();
+}
+function rating(s){ return s>=800?'S':(s>=550?'A':(s>=300?'B':'C')); }
+function rankColor(r){ return r==='S'?'#f5c542':(r==='A'?'#4caf50':(r==='B'?'#3a7bd5':'#9e9e9e')); }
+/* —— ESC 暂停菜单 —— */
+const PAUSE_MENU_ITEMS=['btnPauseResume','btnPauseHome'];
+let pauseMenuIdx=0;
+function clearInput(){ for(const k in keys) keys[k]=false; touch.active=false; touch.dx=touch.dy=0; if(G.player){ G.player.vx=0; G.player.vy=0; } }
+function openPauseMenu(){ if(!G.running||G.pauseMenu) return; G.pauseMenu=true; G.paused=true; clearInput(); pauseMenuIdx=0; updatePauseMenuUI(); showScreen('scrPause'); }
+function closePauseMenu(){ G.pauseMenu=false; if(G.running) G.paused=false; clearInput(); $('scrPause').classList.add('hidden'); }
+function togglePauseMenu(){ if(G.pauseMenu) closePauseMenu(); else openPauseMenu(); }
+function pauseMenuHome(){ G.running=false; G.pauseMenu=false; G.paused=false; clearInput(); showScreen('scrDiff'); buildDiffCards(); }
+function updatePauseMenuUI(){ PAUSE_MENU_ITEMS.forEach((id,i)=>$(id).classList.toggle('selected', i===pauseMenuIdx)); }
+function pauseMenuNav(dir){ pauseMenuIdx=(pauseMenuIdx+dir+PAUSE_MENU_ITEMS.length)%PAUSE_MENU_ITEMS.length; updatePauseMenuUI(); }
+function activatePauseMenuItem(){ if(pauseMenuIdx===0) closePauseMenu(); else pauseMenuHome(); }
+
+/* ============================================================
+ * 16. PWA（manifest + Service Worker）/ 启动画面 / 竖屏提示 / 触屏辅助
+ * ============================================================ */
+function makeIcon(size){
+  const cv=document.createElement('canvas'); cv.width=cv.height=size;
+  const c=cv.getContext('2d'); c.imageSmoothingEnabled=false;
+  c.fillStyle='#140e08'; c.fillRect(0,0,size,size);
+  const pad=Math.round(size*0.06);
+  c.fillStyle='#2a1a12'; c.fillRect(pad,pad,size-pad*2,size-pad*2);
+  c.strokeStyle='#7a4a1e'; c.lineWidth=Math.max(2,Math.round(size*0.035)); c.strokeRect(pad,pad,size-pad*2,size-pad*2);
+  const s=Math.round(size*0.6), o=Math.round((size-s)/2);
+  c.drawImage(sprite('dish_burger'), o, o, s, s);
+  return cv.toDataURL('image/png');
+}
+function initPWA(){
+  try {
+    const i192=makeIcon(192), i512=makeIcon(512);
+    $('appleIcon').href=i192;
+    const manifest={
+      name:'疯狂料理屋', short_name:'疯狂料理屋', description:'类《胡闹厨房》单人料理游戏（像素风）',
+      start_url:'./', scope:'./', display:'fullscreen', orientation:'landscape',
+      background_color:'#140e08', theme_color:'#140e08', lang:'zh-CN',
+      icons:[
+        { src:i192, sizes:'192x192', type:'image/png', purpose:'any maskable' },
+        { src:i512, sizes:'512x512', type:'image/png', purpose:'any maskable' }
+      ]
+    };
+    // 单文件内联 manifest：即使只复制 HTML 也能安装（与同目录 manifest.json 等价）
+    const blob=new Blob([JSON.stringify(manifest)],{type:'application/manifest+json'});
+    $('manifestLink').href=URL.createObjectURL(blob);
+  } catch(e){}
+  // Service Worker：缓存全部资源，断网可玩；file:// 或缺失 sw.js 时静默降级
+  if ('serviceWorker' in navigator && /^https?:/.test(location.protocol)){
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  }
+}
+function initSplash(){
+  try { $('splashLogo').src=makeIcon(192); } catch(e){}
+  setTimeout(()=>{ const s=$('splash'); if(!s) return; s.classList.add('hide'); setTimeout(()=>{ s.style.display='none'; },450); }, 900);
+}
+let rotateDismissed=false;
+function checkOrientation(){
+  const el=$('scrRotate'); if(!el) return;
+  el.classList.toggle('hidden', !(innerHeight>innerWidth && !rotateDismissed));
+}
+function onMenuPressed(){ // ESC / 触屏"菜单"键统一入口
+  if (G.glossaryOpen) closeGlossary();        // 配料表打开时优先关闭
+  else if (G.tutorial) endTutorial();         // 教程模式 = 跳过教程
+  else if (G.pauseMenu) closePauseMenu();     // 已暂停 = 继续
+  else if (G.running) togglePauseMenu();      // 游戏中 = 暂停
+}
+
+/* ============================================================
+ * 17. 启动
+ * ============================================================ */
+let clearConfirm=false;
+function goDiff(){ showScreen('scrDiff'); buildDiffCards(); }
+function boot(){
+  $('versionLabel').textContent = 'v'+VERSION; // 主菜单标题栏显示当前版本号
+  makeTiles(); buildDiffCards(); setupTouch(); resize();
+  $('btnBackMode').onclick=()=>goDiff();
+  document.querySelectorAll('#scrMode .card').forEach(c=>c.onclick=()=>startGame(c.dataset.mode));
+  $('btnAgain').onclick=()=>startGame(G.mode);
+  $('btnHome').onclick=()=>goDiff();
+  $('btnSettings').onclick=()=>{ refreshSettingsUI(); showScreen('scrSettings'); };
+  $('btnBackSettings').onclick=()=>goDiff();
+  $('btnTutorial').onclick=()=>startTutorial();
+  $('btnTutorialSkip').onclick=()=>endTutorial();
+  $('btnTutDoneBack').onclick=()=>goDiff();
+  $('btnBook').onclick=()=>toggleGlossary();
+  $('btnCloseGlossary').onclick=()=>closeGlossary();
+  $('btnTutYes').onclick=()=>{ markTutorialSeen(); showScreen(null); startTutorial(); };
+  $('btnTutNo').onclick=()=>{ markTutorialSeen(); goDiff(); };
+  $('settingSupply').onclick=()=>{ SETTINGS.supply=!SETTINGS.supply; saveSettings(); refreshSettingsUI(); };
+  $('btnPauseResume').onclick=()=>closePauseMenu();
+  $('btnPauseHome').onclick=()=>pauseMenuHome();
+  $('btnClearBest').onclick=()=>{
+    if(!clearConfirm){ clearConfirm=true; $('btnClearBest').textContent='再点一次确认清除'; setTimeout(()=>{ clearConfirm=false; $('btnClearBest').textContent='清除所有记录'; },3000); }
+    else { clearAllBest(); clearConfirm=false; $('btnClearBest').textContent='清除所有记录'; buildDiffCards(); }
+  };
+  document.addEventListener('visibilitychange',()=>{ if(document.hidden&&G.running&&!G.paused&&!G.tutorial&&!G.glossaryOpen) openPauseMenu(); });
+  // 触屏"菜单"键 + 竖屏提示 + PWA/启动画面
+  $('btnMenu').addEventListener('touchstart',(e)=>{ onMenuPressed(); e.preventDefault(); });
+  $('btnRotateOk').onclick=()=>{ rotateDismissed=true; $('scrRotate').classList.add('hidden'); };
+  addEventListener('resize', checkOrientation); addEventListener('orientationchange', checkOrientation);
+  initSplash(); initPWA(); checkOrientation();
+  refreshSettingsUI();
+  if (!tutorialSeen()) showScreen('scrPrompt'); else showScreen('scrDiff');
+  requestAnimationFrame(loop);
+}
+function refreshSettingsUI(){ $('settingSupply').classList.toggle('on',SETTINGS.supply); }
+boot();
+</script>
+</body>
+</html>
